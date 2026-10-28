@@ -61,6 +61,21 @@ impl ShieldEngine {
         }
     }
 
+    /// Updates filter rules (e.g. from EasyList / EasyPrivacy)
+    pub fn load_rules<I, S>(&mut self, rules: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let rules_text = rules
+            .into_iter()
+            .map(|s| s.as_ref().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.engine = Engine::new_with_list_text(rules_text);
+        info!("Valorex Shield updated with new filter rules.");
+    }
+
     /// Evaluates whether an outgoing web request should be blocked.
     pub fn should_block(&mut self, url: &str, source_url: &str, request_type: &str) -> bool {
         if !self.enabled {

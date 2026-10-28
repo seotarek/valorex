@@ -24,6 +24,8 @@ use tao::platform::unix::WindowExtUnix;
 #[cfg(target_os = "linux")]
 use wry::WebViewBuilderExtUnix;
 
+use std::path::PathBuf;
+
 pub struct BrowserWindow {
     pub window: Window,
     pub toolbar_webview: WebView,
@@ -32,6 +34,7 @@ pub struct BrowserWindow {
     pub shield: Arc<Mutex<ShieldEngine>>,
     pub storage: StorageEngine,
     pub config: BrowserConfig,
+    pub zoom_level: f64,
 }
 
 impl BrowserWindow {
@@ -138,14 +141,110 @@ impl BrowserWindow {
             }
         };
 
+        let proxy_dl_start = proxy.clone();
+        let on_dl_start = move |url: String, path: &mut PathBuf| -> bool {
+            let filename = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("downloaded_file");
+            let mut download_dir = dirs::download_dir().unwrap_or_else(|| PathBuf::from("/home/tarek/Downloads"));
+            download_dir.push(filename);
+            *path = download_dir.clone();
+            let _ = proxy_dl_start.send_event(BrowserEvent::DownloadStarted(url, path.clone()));
+            true
+        };
+
+        let proxy_dl_comp = proxy.clone();
+        let on_dl_comp = move |url: String, path: Option<PathBuf>, success: bool| {
+            let _ = proxy_dl_comp.send_event(BrowserEvent::DownloadCompleted(url, path, success));
+        };
+
         let blocked_counter = shield.lock().unwrap().blocked_counter();
         let storage_for_protocol = storage.clone();
+        let proxy_content_ipc = proxy.clone();
+        let shortcuts_script = r#"
+            window.addEventListener('keydown', function(e) {
+                if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+                    if (e.key === 't' || e.key === 'T') {
+                        e.preventDefault();
+                        if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'new_tab' }));
+                    } else if (e.key === 'r' || e.key === 'R') {
+                        e.preventDefault();
+                        if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'reload' }));
+                    } else if (e.key === 'h' || e.key === 'H') {
+                        e.preventDefault();
+                        if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'navigate', url: 'valorex://history' }));
+                    } else if (e.key === 'b' || e.key === 'B') {
+                        e.preventDefault();
+                        if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'navigate', url: 'valorex://bookmarks' }));
+                    } else if (e.key === 'j' || e.key === 'J') {
+                        e.preventDefault();
+                        if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'navigate', url: 'valorex://downloads' }));
+                    } else if (e.key === '=' || e.key === '+') {
+                        e.preventDefault();
+                        if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'zoom_in' }));
+                    } else if (e.key === '-' || e.key === '_') {
+                        e.preventDefault();
+                        if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'zoom_out' }));
+                    } else if (e.key === '0') {
+                        e.preventDefault();
+                        if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'zoom_reset' }));
+                    }
+                }
+            }, true);
+        "#;
+
         let content_builder = WebViewBuilder::new()
             .with_url(&initial_url)
             .with_devtools(true)
+            .with_initialization_script(shortcuts_script)
+            .with_ipc_handler(move |req: wry::http::Request<String>| {
+                #[derive(serde::Deserialize)]
+                struct ContentIpc {
+                    action: String,
+                    url: Option<String>,
+                    id: Option<i64>,
+                }
+                let msg = req.body();
+                if let Ok(payload) = serde_json::from_str::<ContentIpc>(msg) {
+                    match payload.action.as_str() {
+                        "navigate" => {
+                            if let Some(url) = payload.url {
+                                let _ = proxy_content_ipc.send_event(BrowserEvent::Navigate(url));
+                            }
+                        }
+                        "clear_history" => {
+                            let _ = proxy_content_ipc.send_event(BrowserEvent::ClearHistory);
+                        }
+                        "delete_bookmark" => {
+                            if let Some(id) = payload.id {
+                                let _ = proxy_content_ipc.send_event(BrowserEvent::DeleteBookmark(id));
+                            }
+                        }
+                        "new_tab" => {
+                            let _ = proxy_content_ipc.send_event(BrowserEvent::NewTab("https://duckduckgo.com".into()));
+                        }
+                        "reload" => {
+                            let _ = proxy_content_ipc.send_event(BrowserEvent::Reload);
+                        }
+                        "zoom_in" => {
+                            let _ = proxy_content_ipc.send_event(BrowserEvent::ZoomIn);
+                        }
+                        "zoom_out" => {
+                            let _ = proxy_content_ipc.send_event(BrowserEvent::ZoomOut);
+                        }
+                        "zoom_reset" => {
+                            let _ = proxy_content_ipc.send_event(BrowserEvent::ZoomReset);
+                        }
+                        _ => {}
+                    }
+                }
+            })
             .with_on_page_load_handler(on_page_load)
             .with_document_title_changed_handler(on_title)
             .with_navigation_handler(on_navigate)
+            .with_download_started_handler(on_dl_start)
+            .with_download_completed_handler(on_dl_comp)
             .with_custom_protocol("valorex".into(), move |_id, req| {
                 use std::sync::atomic::Ordering;
                 let uri = req.uri().to_string();
@@ -155,6 +254,8 @@ impl BrowserWindow {
                     InternalPages::render_history(&storage_for_protocol)
                 } else if uri.contains("bookmarks") {
                     InternalPages::render_bookmarks(&storage_for_protocol)
+                } else if uri.contains("downloads") {
+                    InternalPages::render_downloads(&storage_for_protocol)
                 } else if uri.contains("settings") {
                     InternalPages::render_settings()
                 } else {
@@ -209,6 +310,7 @@ impl BrowserWindow {
             shield,
             storage,
             config,
+            zoom_level: 1.0,
         };
 
         instance.sync_toolbar_state();
@@ -323,6 +425,49 @@ impl BrowserWindow {
             BrowserEvent::DeleteBookmark(id) => {
                 let _ = self.storage.delete_bookmark(id);
                 self.sync_toolbar_state();
+            }
+            BrowserEvent::ZoomIn => {
+                self.zoom_level = (self.zoom_level + 0.1).min(3.0);
+                let _ = self.content_webview.zoom(self.zoom_level);
+                info!("Zoom level changed to: {:.1}x", self.zoom_level);
+            }
+            BrowserEvent::ZoomOut => {
+                self.zoom_level = (self.zoom_level - 0.1).max(0.3);
+                let _ = self.content_webview.zoom(self.zoom_level);
+                info!("Zoom level changed to: {:.1}x", self.zoom_level);
+            }
+            BrowserEvent::ZoomReset => {
+                self.zoom_level = 1.0;
+                let _ = self.content_webview.zoom(1.0);
+                info!("Zoom level reset to 1.0x");
+            }
+            BrowserEvent::DownloadStarted(url, path) => {
+                info!("Download started for: {} -> {:?}", url, path);
+            }
+            BrowserEvent::DownloadCompleted(url, path_opt, success) => {
+                if success {
+                    if let Some(path) = path_opt {
+                        let filename = path
+                            .file_name()
+                            .and_then(|f| f.to_str())
+                            .unwrap_or("file");
+                        let path_str = path.to_string_lossy().to_string();
+                        let _ = self.storage.record_download(filename, &url, &path_str);
+                        info!("Download completed successfully: {}", path_str);
+                    }
+                } else {
+                    warn!("Download failed for URL: {}", url);
+                }
+            }
+            BrowserEvent::RulesUpdated => {
+                if let Ok(updater) = crate::shield::updater::FilterUpdater::new() {
+                    if let Ok(local_rules) = updater.load_local_rules() {
+                        if !local_rules.is_empty() {
+                            self.shield.lock().unwrap().load_rules(local_rules.lines());
+                            info!("Shield engine updated with fresh EasyList/EasyPrivacy rules.");
+                        }
+                    }
+                }
             }
         }
     }

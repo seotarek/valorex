@@ -538,4 +538,88 @@ impl InternalPages {
 </html>
 "#.to_string()
     }
+
+    pub fn render_downloads(storage: &StorageEngine) -> String {
+        let entries = storage.get_downloads().unwrap_or_default();
+        let mut list_html = String::new();
+        for item in entries {
+            list_html.push_str(&format!(
+                r#"<div class="download-item">
+                    <span class="file-icon">📥</span>
+                    <div class="file-info">
+                      <div class="filename">{}</div>
+                      <div class="filepath">{}</div>
+                    </div>
+                    <span class="badge">COMPLETED</span>
+                </div>"#,
+                item.filename, item.path
+            ));
+        }
+
+        if list_html.is_empty() {
+            list_html = r#"<div class="empty">No downloaded files recorded yet.</div>"#.to_string();
+        }
+
+        format!(
+            r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Downloads - Valorex</title>
+<style>
+  :root {{
+    --bg: #121316;
+    --card: #1c1d22;
+    --border: #2b2d35;
+    --accent: #00d2ff;
+    --text: #f0f2f5;
+    --secondary: #9aa0ad;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    padding: 40px;
+    max-width: 900px;
+    margin: 0 auto;
+  }}
+  h1 {{ font-size: 26px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }}
+  .downloads-list {{ display: flex; flex-direction: column; gap: 8px; }}
+  .download-item {{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }}
+  .file-icon {{ font-size: 24px; }}
+  .file-info {{ flex: 1; min-width: 0; }}
+  .filename {{ font-weight: 600; color: var(--text); }}
+  .filepath {{ font-size: 12px; color: var(--secondary); margin-top: 3px; word-break: break-all; }}
+  .badge {{
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+  }}
+  .empty {{ text-align: center; padding: 60px 0; color: var(--secondary); font-size: 16px; }}
+</style>
+</head>
+<body>
+  <h1>Downloads</h1>
+  <div class="downloads-list">
+    {}
+  </div>
+</body>
+</html>
+"#,
+            list_html
+        )
+    }
 }

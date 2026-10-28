@@ -13,4 +13,10 @@ pub enum BrowserEvent {
     DeleteBookmark(i64),
     PageLoaded(String),
     TitleChanged(String),
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+    DownloadStarted(String, std::path::PathBuf),
+    DownloadCompleted(String, Option<std::path::PathBuf>, bool),
+    RulesUpdated,
 }

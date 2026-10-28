@@ -500,6 +500,9 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     <div class="menu-item" onclick="navigateInternal('valorex://bookmarks')">
       <span>⭐</span> Bookmarks (Ctrl+B)
     </div>
+    <div class="menu-item" onclick="navigateInternal('valorex://downloads')">
+      <span>📥</span> Downloads (Ctrl+J)
+    </div>
     <div class="menu-item" onclick="navigateInternal('valorex://settings')">
       <span>⚙️</span> Settings & Shields
     </div>

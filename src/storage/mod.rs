@@ -23,6 +23,16 @@ pub struct BookmarkEntry {
     pub folder: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadEntry {
+    pub id: i64,
+    pub filename: String,
+    pub url: String,
+    pub path: String,
+    pub timestamp: String,
+    pub status: String,
+}
+
 #[derive(Clone)]
 pub struct StorageEngine {
     conn: Arc<Mutex<Connection>>,
@@ -84,8 +94,18 @@ impl StorageEngine {
                 aggressive_mode INTEGER NOT NULL DEFAULT 0
             );
 
+            CREATE TABLE IF NOT EXISTS downloads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                url TEXT NOT NULL,
+                path TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'completed'
+            );
+
             CREATE INDEX IF NOT EXISTS idx_history_time ON history(visit_time DESC);
             CREATE INDEX IF NOT EXISTS idx_bookmarks_url ON bookmarks(url);
+            CREATE INDEX IF NOT EXISTS idx_downloads_time ON downloads(timestamp DESC);
             ",
         )?;
         Ok(())
@@ -238,6 +258,46 @@ impl StorageEngine {
         )?;
         Ok(())
     }
+
+    pub fn record_download(&self, filename: &str, url: &str, path: &str) -> Result<i64, Box<dyn std::error::Error>> {
+        let now = Utc::now().to_rfc3339();
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "
+            INSERT INTO downloads (filename, url, path, timestamp, status)
+            VALUES (?1, ?2, ?3, ?4, 'completed')
+            ",
+            params![filename, url, path, now],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn get_downloads(&self) -> Result<Vec<DownloadEntry>, Box<dyn std::error::Error>> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare("SELECT id, filename, url, path, timestamp, status FROM downloads ORDER BY id DESC")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(DownloadEntry {
+                id: row.get(0)?,
+                filename: row.get(1)?,
+                url: row.get(2)?,
+                path: row.get(3)?,
+                timestamp: row.get(4)?,
+                status: row.get(5)?,
+            })
+        })?;
+
+        let mut entries = Vec::new();
+        for entry in rows {
+            entries.push(entry?);
+        }
+        Ok(entries)
+    }
+
+    pub fn clear_downloads(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM downloads", [])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -292,5 +352,20 @@ mod tests {
 
         storage.set_site_shield("example.com", true).unwrap();
         assert_eq!(storage.get_site_shield("example.com").unwrap(), Some(true));
+    }
+
+    #[test]
+    fn test_downloads_flow() {
+        let storage = StorageEngine::new_in_memory().unwrap();
+        let id = storage.record_download("sample.pdf", "https://example.com/sample.pdf", "/home/user/Downloads/sample.pdf").unwrap();
+        assert!(id > 0);
+
+        let list = storage.get_downloads().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].filename, "sample.pdf");
+        assert_eq!(list[0].status, "completed");
+
+        storage.clear_downloads().unwrap();
+        assert!(storage.get_downloads().unwrap().is_empty());
     }
 }

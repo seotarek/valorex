@@ -7,12 +7,33 @@ use tao::{
 use valorex::{
     browser::{events::BrowserEvent, BrowserWindow},
     config::BrowserConfig,
-    shield::ShieldEngine,
+    shield::{updater::FilterUpdater, ShieldEngine},
     storage::StorageEngine,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    let args: Vec<String> = env::args().collect();
+    if args.iter().any(|a| a == "-v" || a == "--version") {
+        println!("Valorex Browser v0.1.0");
+        println!("Engine: Rust 1.85+, Wry (WebKitGTK 4.1), Brave Adblock 0.13");
+        return Ok(());
+    }
+
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        println!("Valorex - Ultra-fast, privacy-first native web browser in Rust");
+        println!();
+        println!("USAGE:");
+        println!("    valorex [OPTIONS] [URL]");
+        println!();
+        println!("OPTIONS:");
+        println!("    -i, --incognito         Open in private/incognito mode");
+        println!("        --disable-shields   Disable built-in ad & tracker blocking");
+        println!("    -v, --version           Print version information");
+        println!("    -h, --help              Print help information");
+        return Ok(());
+    }
 
     println!("======================================================");
     println!("  Valorex Browser - Ultra-fast & Privacy-First (Rust) ");
@@ -22,12 +43,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proxy = event_loop.create_proxy();
 
     let mut config = BrowserConfig::default();
-    if let Some(target_url) = env::args().nth(1) {
-        config.homepage = target_url;
+    if args.iter().any(|a| a == "-i" || a == "--incognito") {
+        config.shields_enabled = true;
+        config.homepage = "valorex://newtab".to_string();
+    }
+
+    if args.iter().any(|a| a == "--disable-shields") {
+        config.shields_enabled = false;
+    }
+
+    for arg in args.iter().skip(1) {
+        if !arg.starts_with('-') {
+            config.homepage = arg.clone();
+            break;
+        }
     }
 
     let shield = Arc::new(Mutex::new(ShieldEngine::new()));
     let storage = StorageEngine::new()?;
+
+    // Spawn background worker to sync latest EasyList/EasyPrivacy filter rules
+    let proxy_updater = proxy.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build();
+        if let Ok(rt) = rt {
+            rt.block_on(async move {
+                if let Ok(updater) = FilterUpdater::new() {
+                    if let Ok(count) = updater.update_filters().await {
+                        if count > 0 {
+                            let _ = proxy_updater.send_event(BrowserEvent::RulesUpdated);
+                        }
+                    }
+                }
+            });
+        }
+    });
 
     let mut browser_window = BrowserWindow::new(
         &event_loop,

@@ -159,15 +159,15 @@ impl InternalPages {
   </div>
 
   <div class="search-box">
-    <form action="https://duckduckgo.com/" method="GET">
-      <input type="text" name="q" class="search-input" placeholder="Search the web with DuckDuckGo..." autofocus>
+    <form action="https://www.google.com/search" method="GET">
+      <input type="text" name="q" class="search-input" placeholder="Search Google or type a URL..." autofocus>
     </form>
   </div>
 
   <div class="shortcuts-grid">
-    <a href="https://duckduckgo.com" class="shortcut">
-      <div class="shortcut-icon">🦆</div>
-      <div class="shortcut-title">DuckDuckGo</div>
+    <a href="https://google.com" class="shortcut">
+      <div class="shortcut-icon">🔍</div>
+      <div class="shortcut-title">Google</div>
     </a>
     <a href="https://wikipedia.org" class="shortcut">
       <div class="shortcut-icon">📚</div>
@@ -520,7 +520,7 @@ impl InternalPages {
         <div>Default Search Provider</div>
         <div class="setting-desc">Search query engine used in the address bar.</div>
       </div>
-      <span class="badge">DuckDuckGo (Privacy Default)</span>
+      <span class="badge">Google (Default)</span>
     </div>
   </div>
 

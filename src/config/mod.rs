@@ -12,7 +12,7 @@ pub struct BrowserConfig {
 impl Default for BrowserConfig {
     fn default() -> Self {
         Self {
-            homepage: "https://duckduckgo.com".to_string(),
+            homepage: "valorex://newtab".to_string(),
             shields_enabled: true,
             block_trackers: true,
             block_third_party_scripts: false,

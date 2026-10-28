@@ -448,7 +448,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
       <div class="address-lock" title="Connection is secure">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
       </div>
-      <input type="text" class="address-input" id="address-input" placeholder="Search with DuckDuckGo or enter web address" autocomplete="off" spellcheck="false">
+      <input type="text" class="address-input" id="address-input" placeholder="Search with Google or enter web address" autocomplete="off" spellcheck="false">
       <button class="bookmark-btn" id="bookmark-btn" title="Bookmark this tab">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
       </button>
@@ -510,7 +510,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
 
 <script>
   let tabsState = [
-    { id: 1, title: 'New Tab', url: 'https://duckduckgo.com', active: true }
+    { id: 1, title: 'New Tab', url: 'valorex://newtab', active: true }
   ];
 
   function post(msg) {
@@ -567,8 +567,8 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   document.getElementById('back-btn').onclick = () => post({ action: 'go_back' });
   document.getElementById('forward-btn').onclick = () => post({ action: 'go_forward' });
   document.getElementById('reload-btn').onclick = () => post({ action: 'reload' });
-  document.getElementById('home-btn').onclick = () => post({ action: 'navigate', url: 'https://duckduckgo.com' });
-  document.getElementById('new-tab-btn').onclick = () => post({ action: 'new_tab', url: 'https://duckduckgo.com' });
+  document.getElementById('home-btn').onclick = () => post({ action: 'navigate', url: 'valorex://newtab' });
+  document.getElementById('new-tab-btn').onclick = () => post({ action: 'new_tab', url: 'valorex://newtab' });
   document.getElementById('bookmark-btn').onclick = () => post({ action: 'toggle_bookmark' });
 
   // Shield Dropdown

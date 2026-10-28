@@ -18,7 +18,7 @@ pub struct TabManager {
 
 impl Default for TabManager {
     fn default() -> Self {
-        Self::new("https://duckduckgo.com")
+        Self::new("valorex://newtab")
     }
 }
 
@@ -60,7 +60,7 @@ impl TabManager {
             // Keep at least one tab open
             if let Some(tab) = self.tabs.first_mut() {
                 tab.title = "New Tab".to_string();
-                tab.url = "https://duckduckgo.com".to_string();
+                tab.url = "valorex://newtab".to_string();
                 tab.blocked_count = 0;
             }
             return Some(self.active_id);
@@ -147,6 +147,6 @@ mod tests {
         // Closing last remaining tab resets it rather than destroying it
         manager.close_tab(1);
         assert_eq!(manager.tabs().len(), 1);
-        assert_eq!(manager.tabs()[0].url, "https://duckduckgo.com");
+        assert_eq!(manager.tabs()[0].url, "valorex://newtab");
     }
 }

@@ -85,7 +85,7 @@ impl BrowserWindow {
                             let _ = proxy_ipc.send_event(BrowserEvent::Reload);
                         }
                         "new_tab" => {
-                            let url = payload.url.unwrap_or_else(|| "https://duckduckgo.com".to_string());
+                            let url = payload.url.unwrap_or_else(|| "valorex://newtab".to_string());
                             let _ = proxy_ipc.send_event(BrowserEvent::NewTab(url));
                         }
                         "close_tab" => {
@@ -222,7 +222,7 @@ impl BrowserWindow {
                             }
                         }
                         "new_tab" => {
-                            let _ = proxy_content_ipc.send_event(BrowserEvent::NewTab("https://duckduckgo.com".into()));
+                            let _ = proxy_content_ipc.send_event(BrowserEvent::NewTab("valorex://newtab".into()));
                         }
                         "reload" => {
                             let _ = proxy_content_ipc.send_event(BrowserEvent::Reload);
@@ -476,7 +476,7 @@ impl BrowserWindow {
         let (current_url, can_back, can_forward) = if let Some(tab) = self.tab_manager.active_tab() {
             (tab.url.clone(), tab.can_go_back, tab.can_go_forward)
         } else {
-            ("https://duckduckgo.com".to_string(), false, false)
+            ("valorex://newtab".to_string(), false, false)
         };
 
         let is_bookmarked = self.storage.is_bookmarked(&current_url).unwrap_or(false);
@@ -511,7 +511,7 @@ impl BrowserWindow {
             format!("https://{}", trimmed)
         } else {
             let query = trimmed.replace(' ', "+");
-            format!("https://duckduckgo.com/?q={}", query)
+            format!("https://www.google.com/search?q={}", query)
         }
     }
 }

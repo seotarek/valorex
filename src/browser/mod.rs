@@ -31,10 +31,22 @@ impl BrowserWindow {
         let initial_url = config.homepage.clone();
         info!("Launching Valorex webview pointing to: {}", initial_url);
 
-        let webview = WebViewBuilder::new()
+        let builder = WebViewBuilder::new()
             .with_url(&initial_url)
-            .with_devtools(true)
-            .build(&window)?;
+            .with_devtools(true);
+
+        #[cfg(target_os = "linux")]
+        let webview = {
+            use tao::platform::unix::WindowExtUnix;
+            use wry::WebViewBuilderExtUnix;
+            let vbox = window
+                .default_vbox()
+                .ok_or_else(|| "Failed to obtain GTK default vbox from Tao window".to_string())?;
+            builder.build_gtk(vbox)?
+        };
+
+        #[cfg(not(target_os = "linux"))]
+        let webview = builder.build(&window)?;
 
         Ok(Self {
             window,

@@ -28,6 +28,8 @@ use std::path::PathBuf;
 
 pub struct BrowserWindow {
     pub window: Window,
+    #[cfg(target_os = "linux")]
+    pub toolbar_box: gtk::Box,
     pub toolbar_webview: WebView,
     pub content_webview: WebView,
     pub tab_manager: TabManager,
@@ -35,6 +37,8 @@ pub struct BrowserWindow {
     pub storage: StorageEngine,
     pub config: BrowserConfig,
     pub zoom_level: f64,
+    pub toolbar_visible: bool,
+    pub is_fullscreen: bool,
 }
 
 impl BrowserWindow {
@@ -64,6 +68,9 @@ impl BrowserWindow {
                     action: String,
                     url: Option<String>,
                     id: Option<usize>,
+                    from_id: Option<usize>,
+                    to_id: Option<usize>,
+                    index: Option<usize>,
                     enabled: Option<bool>,
                 }
 
@@ -110,6 +117,40 @@ impl BrowserWindow {
                         "delete_bookmark" => {
                             if let Some(id) = payload.id {
                                 let _ = proxy_ipc.send_event(BrowserEvent::DeleteBookmark(id as i64));
+                            }
+                        }
+                        "toggle_toolbar" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::ToggleToolbar);
+                        }
+                        "duplicate_tab" => {
+                            if let Some(id) = payload.id {
+                                let _ = proxy_ipc.send_event(BrowserEvent::DuplicateTab(id));
+                            }
+                        }
+                        "pin_tab" => {
+                            if let Some(id) = payload.id {
+                                let _ = proxy_ipc.send_event(BrowserEvent::PinTab(id));
+                            }
+                        }
+                        "close_other_tabs" => {
+                            if let Some(id) = payload.id {
+                                let _ = proxy_ipc.send_event(BrowserEvent::CloseOtherTabs(id));
+                            }
+                        }
+                        "reorder_tabs" => {
+                            if let (Some(f), Some(t)) = (payload.from_id, payload.to_id) {
+                                let _ = proxy_ipc.send_event(BrowserEvent::ReorderTabs(f, t));
+                            }
+                        }
+                        "next_tab" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::NextTab);
+                        }
+                        "prev_tab" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::PrevTab);
+                        }
+                        "switch_tab_index" => {
+                            if let Some(idx) = payload.index {
+                                let _ = proxy_ipc.send_event(BrowserEvent::SwitchTabIndex(idx));
                             }
                         }
                         _ => {}
@@ -163,8 +204,48 @@ impl BrowserWindow {
         let storage_for_protocol = storage.clone();
         let proxy_content_ipc = proxy.clone();
         let shortcuts_script = r#"
+            // Floating reveal pill when toolbar is hidden
+            (function() {
+                var revealPill = document.createElement('div');
+                revealPill.id = 'valorex-reveal-pill';
+                revealPill.innerHTML = '👁️ إظهار الشريط (F11)';
+                revealPill.style.cssText = 'position:fixed;top:-45px;left:50%;transform:translateX(-50%);background:#1e2025;color:#00d2ff;border:1px solid #282b33;border-radius:0 0 10px 10px;padding:6px 16px;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;z-index:2147483647;cursor:pointer;transition:top 0.2s cubic-bezier(0.16, 1, 0.3, 1);box-shadow:0 6px 20px rgba(0,0,0,0.6);user-select:none;display:flex;align-items:center;gap:6px;font-weight:600;';
+                document.documentElement.appendChild(revealPill);
+
+                revealPill.onclick = function() {
+                    if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'toggle_toolbar' }));
+                };
+
+                var hideTimeout;
+                window.addEventListener('mousemove', function(e) {
+                    if (e.clientY <= 6) {
+                        revealPill.style.top = '0px';
+                        clearTimeout(hideTimeout);
+                    } else if (e.clientY > 45) {
+                        hideTimeout = setTimeout(function() {
+                            revealPill.style.top = '-45px';
+                        }, 500);
+                    }
+                }, true);
+            })();
+
             window.addEventListener('keydown', function(e) {
-                if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+                if (e.key === 'F11' || (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f'))) {
+                    e.preventDefault();
+                    if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'toggle_toolbar' }));
+                } else if (e.ctrlKey && e.key === 'Tab') {
+                    e.preventDefault();
+                    if (window.ipc) {
+                        if (e.shiftKey) {
+                            window.ipc.postMessage(JSON.stringify({ action: 'prev_tab' }));
+                        } else {
+                            window.ipc.postMessage(JSON.stringify({ action: 'next_tab' }));
+                        }
+                    }
+                } else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
+                    e.preventDefault();
+                    if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'switch_tab_index', index: parseInt(e.key) - 1 }));
+                } else if (e.ctrlKey && !e.shiftKey && !e.altKey) {
                     if (e.key === 't' || e.key === 'T') {
                         e.preventDefault();
                         if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'new_tab' }));
@@ -204,6 +285,7 @@ impl BrowserWindow {
                     action: String,
                     url: Option<String>,
                     id: Option<i64>,
+                    index: Option<usize>,
                 }
                 let msg = req.body();
                 if let Ok(payload) = serde_json::from_str::<ContentIpc>(msg) {
@@ -235,6 +317,20 @@ impl BrowserWindow {
                         }
                         "zoom_reset" => {
                             let _ = proxy_content_ipc.send_event(BrowserEvent::ZoomReset);
+                        }
+                        "toggle_toolbar" => {
+                            let _ = proxy_content_ipc.send_event(BrowserEvent::ToggleToolbar);
+                        }
+                        "next_tab" => {
+                            let _ = proxy_content_ipc.send_event(BrowserEvent::NextTab);
+                        }
+                        "prev_tab" => {
+                            let _ = proxy_content_ipc.send_event(BrowserEvent::PrevTab);
+                        }
+                        "switch_tab_index" => {
+                            if let Some(idx) = payload.index {
+                                let _ = proxy_content_ipc.send_event(BrowserEvent::SwitchTabIndex(idx));
+                            }
                         }
                         _ => {}
                     }
@@ -272,7 +368,7 @@ impl BrowserWindow {
 
         // --- GTK Dual-Layer Packing on Linux ---
         #[cfg(target_os = "linux")]
-        let (toolbar_webview, content_webview) = {
+        let (toolbar_box, toolbar_webview, content_webview) = {
             let vbox = window
                 .default_vbox()
                 .ok_or_else(|| "Failed to obtain GTK default vbox from Tao window".to_string())?;
@@ -290,7 +386,7 @@ impl BrowserWindow {
 
             let tb = toolbar_builder.build_gtk(&toolbar_box)?;
             let cb = content_builder.build_gtk(&content_box)?;
-            (tb, cb)
+            (toolbar_box, tb, cb)
         };
 
         #[cfg(not(target_os = "linux"))]
@@ -304,6 +400,8 @@ impl BrowserWindow {
 
         let instance = Self {
             window,
+            #[cfg(target_os = "linux")]
+            toolbar_box,
             toolbar_webview,
             content_webview,
             tab_manager,
@@ -311,6 +409,8 @@ impl BrowserWindow {
             storage,
             config,
             zoom_level: 1.0,
+            toolbar_visible: true,
+            is_fullscreen: false,
         };
 
         instance.sync_toolbar_state();
@@ -467,6 +567,67 @@ impl BrowserWindow {
                             info!("Shield engine updated with fresh EasyList/EasyPrivacy rules.");
                         }
                     }
+                }
+            }
+            BrowserEvent::ToggleToolbar => {
+                self.toolbar_visible = !self.toolbar_visible;
+                #[cfg(target_os = "linux")]
+                {
+                    self.toolbar_box.set_visible(self.toolbar_visible);
+                }
+                info!("Toolbar visibility toggled to: {}", self.toolbar_visible);
+            }
+            BrowserEvent::SetToolbarVisible(visible) => {
+                self.toolbar_visible = visible;
+                #[cfg(target_os = "linux")]
+                {
+                    self.toolbar_box.set_visible(self.toolbar_visible);
+                }
+                info!("Toolbar visibility set to: {}", self.toolbar_visible);
+            }
+            BrowserEvent::DuplicateTab(id) => {
+                if let Some(new_id) = self.tab_manager.duplicate_tab(id) {
+                    if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_id) {
+                        let _ = self.content_webview.load_url(&tab.url);
+                    }
+                    self.sync_toolbar_state();
+                }
+            }
+            BrowserEvent::PinTab(id) => {
+                let _ = self.tab_manager.toggle_pin_tab(id);
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::CloseOtherTabs(id) => {
+                self.tab_manager.close_other_tabs(id);
+                if let Some(tab) = self.tab_manager.active_tab() {
+                    let _ = self.content_webview.load_url(&tab.url);
+                }
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::ReorderTabs(from_id, to_id) => {
+                self.tab_manager.reorder_tabs(from_id, to_id);
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::NextTab => {
+                let new_active_id = self.tab_manager.next_tab();
+                if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_active_id) {
+                    let _ = self.content_webview.load_url(&tab.url);
+                }
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::PrevTab => {
+                let new_active_id = self.tab_manager.prev_tab();
+                if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_active_id) {
+                    let _ = self.content_webview.load_url(&tab.url);
+                }
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::SwitchTabIndex(index) => {
+                if let Some(new_active_id) = self.tab_manager.switch_to_index(index) {
+                    if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_active_id) {
+                        let _ = self.content_webview.load_url(&tab.url);
+                    }
+                    self.sync_toolbar_state();
                 }
             }
         }

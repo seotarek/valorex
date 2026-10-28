@@ -84,6 +84,26 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     border-color: var(--border);
   }
 
+  .tab.pinned {
+    min-width: 42px;
+    max-width: 42px;
+    padding: 0 10px;
+    justify-content: center;
+  }
+
+  .tab.pinned .tab-title, .tab.pinned .tab-close {
+    display: none;
+  }
+
+  .tab.pinned .tab-icon {
+    margin-right: 0;
+  }
+
+  .tab.drag-over {
+    border-left: 2px solid var(--shield-cyan);
+    transform: scale(1.02);
+  }
+
   .tab-icon {
     width: 14px;
     height: 14px;
@@ -412,6 +432,44 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   .menu-item:hover {
     background: var(--bg-hover);
   }
+  .tab-context-menu {
+    display: none;
+    position: fixed;
+    z-index: 2000;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+    padding: 6px;
+    min-width: 180px;
+  }
+
+  .tab-context-menu.open {
+    display: block;
+    animation: fadeIn 0.12s ease-out;
+  }
+
+  .tab-context-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-primary);
+    transition: background 0.15s;
+  }
+
+  .tab-context-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .tab-context-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+  }
 </style>
 </head>
 <body>
@@ -460,6 +518,11 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
       <span id="shield-count">0</span>
     </button>
 
+    <!-- Zen Mode (Toggle Toolbar) Button -->
+    <button class="icon-btn" id="zen-btn" title="Hide Toolbar / Focus Mode (F11 / Ctrl+Shift+F)">
+      <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+    </button>
+
     <!-- Menu Button -->
     <button class="icon-btn" id="menu-btn" title="Valorex Menu">
       <svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
@@ -506,17 +569,38 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     <div class="menu-item" onclick="navigateInternal('valorex://settings')">
       <span>⚙️</span> Settings & Shields
     </div>
+    <div class="menu-item" onclick="toggleToolbarMode()">
+      <span>🔲</span> Hide Toolbar (F11)
+    </div>
+  </div>
+
+  <!-- Tab Context Menu -->
+  <div class="tab-context-menu" id="tab-context-menu">
+    <div class="tab-context-item" id="ctx-new-tab"><span>➕</span> New Tab (Ctrl+T)</div>
+    <div class="tab-context-item" id="ctx-reload"><span>🔄</span> Reload Tab (Ctrl+R)</div>
+    <div class="tab-context-item" id="ctx-duplicate"><span>📑</span> Duplicate Tab</div>
+    <div class="tab-context-item" id="ctx-pin"><span id="ctx-pin-icon">📌</span> <span id="ctx-pin-text">Pin Tab</span></div>
+    <div class="tab-context-divider"></div>
+    <div class="tab-context-item" id="ctx-close"><span>❌</span> Close Tab (Ctrl+W)</div>
+    <div class="tab-context-item" id="ctx-close-others"><span>🚫</span> Close Other Tabs</div>
   </div>
 
 <script>
   let tabsState = [
-    { id: 1, title: 'New Tab', url: 'valorex://newtab', active: true }
+    { id: 1, title: 'New Tab', url: 'valorex://newtab', active: true, pinned: false }
   ];
+  let contextTabId = null;
+  const ctxMenu = document.getElementById('tab-context-menu');
 
   function post(msg) {
     if (window.ipc) {
       window.ipc.postMessage(JSON.stringify(msg));
     }
+  }
+
+  function toggleToolbarMode() {
+    post({ action: 'toggle_toolbar' });
+    menuPopup.classList.remove('open');
   }
 
   function renderTabs() {
@@ -529,15 +613,54 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
 
     tabsState.forEach(tab => {
       const tabEl = document.createElement('div');
-      tabEl.className = 'tab' + (tab.active ? ' active' : '');
+      tabEl.className = 'tab' + (tab.active ? ' active' : '') + (tab.pinned ? ' pinned' : '');
+      tabEl.draggable = true;
+      tabEl.dataset.id = tab.id;
+
       tabEl.onclick = (e) => {
         if (!e.target.classList.contains('tab-close')) {
           post({ action: 'switch_tab', id: tab.id });
         }
       };
 
+      tabEl.oncontextmenu = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        contextTabId = tab.id;
+        document.getElementById('ctx-pin-text').textContent = tab.pinned ? 'Unpin Tab' : 'Pin Tab';
+        document.getElementById('ctx-pin-icon').textContent = tab.pinned ? '📍' : '📌';
+
+        ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - 190) + 'px';
+        ctxMenu.style.top = '38px';
+        ctxMenu.classList.add('open');
+        shieldPopup.classList.remove('open');
+        menuPopup.classList.remove('open');
+      };
+
+      // Drag and drop reordering
+      tabEl.ondragstart = (e) => {
+        e.dataTransfer.setData('text/plain', String(tab.id));
+        e.dataTransfer.effectAllowed = 'move';
+      };
+      tabEl.ondragover = (e) => {
+        e.preventDefault();
+        tabEl.classList.add('drag-over');
+      };
+      tabEl.ondragleave = () => {
+        tabEl.classList.remove('drag-over');
+      };
+      tabEl.ondrop = (e) => {
+        e.preventDefault();
+        tabEl.classList.remove('drag-over');
+        const fromId = parseInt(e.dataTransfer.getData('text/plain'));
+        if (fromId && fromId !== tab.id) {
+          post({ action: 'reorder_tabs', from_id: fromId, to_id: tab.id });
+        }
+      };
+
+      const icon = tab.pinned ? '📌' : '🌐';
       tabEl.innerHTML = `
-        <div class="tab-icon">🌐</div>
+        <div class="tab-icon">${icon}</div>
         <div class="tab-title" title="${tab.title}">${tab.title}</div>
         <div class="tab-close" title="Close Tab (Ctrl+W)">&times;</div>
       `;
@@ -550,6 +673,32 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
       tabBar.insertBefore(tabEl, newBtn);
     });
   }
+
+  // Context Menu Actions
+  document.getElementById('ctx-new-tab').onclick = () => {
+    ctxMenu.classList.remove('open');
+    post({ action: 'new_tab', url: 'valorex://newtab' });
+  };
+  document.getElementById('ctx-reload').onclick = () => {
+    ctxMenu.classList.remove('open');
+    post({ action: 'reload' });
+  };
+  document.getElementById('ctx-duplicate').onclick = () => {
+    ctxMenu.classList.remove('open');
+    if (contextTabId) post({ action: 'duplicate_tab', id: contextTabId });
+  };
+  document.getElementById('ctx-pin').onclick = () => {
+    ctxMenu.classList.remove('open');
+    if (contextTabId) post({ action: 'pin_tab', id: contextTabId });
+  };
+  document.getElementById('ctx-close').onclick = () => {
+    ctxMenu.classList.remove('open');
+    if (contextTabId) post({ action: 'close_tab', id: contextTabId });
+  };
+  document.getElementById('ctx-close-others').onclick = () => {
+    ctxMenu.classList.remove('open');
+    if (contextTabId) post({ action: 'close_other_tabs', id: contextTabId });
+  };
 
   // Address Bar Navigation
   const addressInput = document.getElementById('address-input');
@@ -570,6 +719,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   document.getElementById('home-btn').onclick = () => post({ action: 'navigate', url: 'valorex://newtab' });
   document.getElementById('new-tab-btn').onclick = () => post({ action: 'new_tab', url: 'valorex://newtab' });
   document.getElementById('bookmark-btn').onclick = () => post({ action: 'toggle_bookmark' });
+  document.getElementById('zen-btn').onclick = () => toggleToolbarMode();
 
   // Shield Dropdown
   const shieldBtn = document.getElementById('shield-btn');
@@ -580,6 +730,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     e.stopPropagation();
     shieldPopup.classList.toggle('open');
     menuPopup.classList.remove('open');
+    ctxMenu.classList.remove('open');
   };
 
   shieldToggle.onchange = () => {
@@ -593,11 +744,31 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     e.stopPropagation();
     menuPopup.classList.toggle('open');
     shieldPopup.classList.remove('open');
+    ctxMenu.classList.remove('open');
   };
 
   document.addEventListener('click', () => {
     shieldPopup.classList.remove('open');
     menuPopup.classList.remove('open');
+    ctxMenu.classList.remove('open');
+  });
+
+  // Keyboard navigation within chrome
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'F11' || (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f'))) {
+      e.preventDefault();
+      toggleToolbarMode();
+    } else if (e.ctrlKey && e.key === 'Tab') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        post({ action: 'prev_tab' });
+      } else {
+        post({ action: 'next_tab' });
+      }
+    } else if (e.ctrlKey && e.key >= '1' && e.key <= '9') {
+      e.preventDefault();
+      post({ action: 'switch_tab_index', index: parseInt(e.key) - 1 });
+    }
   });
 
   function navigateInternal(url) {

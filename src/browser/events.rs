@@ -19,4 +19,13 @@ pub enum BrowserEvent {
     DownloadStarted(String, std::path::PathBuf),
     DownloadCompleted(String, Option<std::path::PathBuf>, bool),
     RulesUpdated,
+    ToggleToolbar,
+    SetToolbarVisible(bool),
+    DuplicateTab(usize),
+    PinTab(usize),
+    CloseOtherTabs(usize),
+    ReorderTabs(usize, usize),
+    NextTab,
+    PrevTab,
+    SwitchTabIndex(usize),
 }

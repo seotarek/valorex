@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f1115"/>
+      <stop offset="100%" stop-color="#1c1f26"/>
+    </linearGradient>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00d2ff"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#ff5500"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="512" height="512" rx="110" fill="url(#bgGrad)"/>
+  <rect width="504" height="504" x="4" y="4" rx="106" fill="none" stroke="#2c303b" stroke-width="4"/>
+
+  <!-- Shield Shape Glow -->
+  <path d="M256 70 L390 130 C390 270 290 380 256 420 C222 380 122 270 122 130 Z"
+        fill="none" stroke="url(#shieldGrad)" stroke-width="18" filter="url(#glow)" opacity="0.6"/>
+
+  <!-- Main Shield -->
+  <path d="M256 70 L390 130 C390 270 290 380 256 420 C222 380 122 270 122 130 Z"
+        fill="#14171e" stroke="url(#shieldGrad)" stroke-width="12"/>
+
+  <!-- Central 'V' Monogram -->
+  <path d="M190 180 L256 330 L322 180 L290 180 L256 265 L222 180 Z"
+        fill="url(#shieldGrad)"/>
+
+  <!-- Core Security Spark -->
+  <circle cx="256" cy="150" r="10" fill="#00d2ff"/>
+</svg>

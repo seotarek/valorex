@@ -4,12 +4,14 @@ use adblock::request::Request;
 use adblock::Engine;
 use log::{info, warn};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Valorex Shield Engine - Core ad, tracker, and cosmetic filter engine.
 pub struct ShieldEngine {
     engine: Engine,
     enabled: bool,
-    blocked_count: u64,
+    blocked_count: Arc<AtomicU64>,
     domain_block_counts: HashMap<String, u64>,
 }
 
@@ -54,7 +56,7 @@ impl ShieldEngine {
         Self {
             engine,
             enabled: true,
-            blocked_count: 0,
+            blocked_count: Arc::new(AtomicU64::new(0)),
             domain_block_counts: HashMap::new(),
         }
     }
@@ -69,7 +71,7 @@ impl ShieldEngine {
             Ok(request) => {
                 let check_result = self.engine.check_network_request(&request);
                 if check_result.should_block() {
-                    self.blocked_count += 1;
+                    self.blocked_count.fetch_add(1, Ordering::Relaxed);
                     if let Ok(parsed) = url::Url::parse(source_url) {
                         if let Some(host) = parsed.host_str() {
                             *self.domain_block_counts.entry(host.to_string()).or_insert(0) += 1;
@@ -135,7 +137,11 @@ impl ShieldEngine {
     }
 
     pub fn get_blocked_count(&self) -> u64 {
-        self.blocked_count
+        self.blocked_count.load(Ordering::Relaxed)
+    }
+
+    pub fn blocked_counter(&self) -> Arc<AtomicU64> {
+        self.blocked_count.clone()
     }
 
     pub fn get_domain_blocked_count(&self, domain: &str) -> u64 {

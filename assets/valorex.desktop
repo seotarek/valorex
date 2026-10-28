@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Valorex
+GenericName=Web Browser
+Comment=Ultra-fast, privacy-first desktop web browser engineered in Rust
+Exec=/home/tarek/valorex/target/release/valorex %u
+Icon=/home/tarek/valorex/assets/valorex.svg
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
+StartupWMClass=valorex

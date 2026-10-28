@@ -1,0 +1,26 @@
+[package]
+name = "valorex"
+version = "0.1.0"
+edition = "2021"
+authors = ["Tarek (seotarek)"]
+description = "Ultra-fast, privacy-respecting native desktop browser engineered in Rust"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/seotarek/valorex"
+
+[dependencies]
+wry = "0.57"
+tao = "0.37"
+adblock = "0.13"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+env_logger = "0.11"
+url = "2.5"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

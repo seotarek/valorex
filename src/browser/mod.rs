@@ -28,8 +28,7 @@ use std::path::PathBuf;
 
 pub struct BrowserWindow {
     pub window: Window,
-    #[cfg(target_os = "linux")]
-    pub toolbar_box: gtk::Box,
+    pub proxy: EventLoopProxy<BrowserEvent>,
     pub toolbar_webview: WebView,
     pub content_webview: WebView,
     pub tab_manager: TabManager,
@@ -37,8 +36,8 @@ pub struct BrowserWindow {
     pub storage: StorageEngine,
     pub config: BrowserConfig,
     pub zoom_level: f64,
-    pub toolbar_visible: bool,
     pub is_fullscreen: bool,
+    pub decorations_enabled: bool,
 }
 
 impl BrowserWindow {
@@ -53,6 +52,7 @@ impl BrowserWindow {
             .with_title("Valorex")
             .with_inner_size(LogicalSize::new(1280.0, 800.0))
             .with_min_inner_size(LogicalSize::new(450.0, 350.0))
+            .with_decorations(false)
             .build(event_loop)?;
 
         let initial_url = config.homepage.clone();
@@ -119,9 +119,6 @@ impl BrowserWindow {
                                 let _ = proxy_ipc.send_event(BrowserEvent::DeleteBookmark(id as i64));
                             }
                         }
-                        "toggle_toolbar" => {
-                            let _ = proxy_ipc.send_event(BrowserEvent::ToggleToolbar);
-                        }
                         "duplicate_tab" => {
                             if let Some(id) = payload.id {
                                 let _ = proxy_ipc.send_event(BrowserEvent::DuplicateTab(id));
@@ -152,6 +149,32 @@ impl BrowserWindow {
                             if let Some(idx) = payload.index {
                                 let _ = proxy_ipc.send_event(BrowserEvent::SwitchTabIndex(idx));
                             }
+                        }
+                        "open_menu" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::OpenMenu);
+                        }
+                        "open_shield_menu" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::OpenShieldMenu);
+                        }
+                        "open_tab_context" => {
+                            if let Some(id) = payload.id {
+                                let _ = proxy_ipc.send_event(BrowserEvent::OpenTabContextMenu(id));
+                            }
+                        }
+                        "minimize_window" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::MinimizeWindow);
+                        }
+                        "maximize_window" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::MaximizeWindow);
+                        }
+                        "close_window" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::CloseWindow);
+                        }
+                        "drag_window" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::DragWindow);
+                        }
+                        "toggle_fullscreen" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::ToggleFullscreen);
                         }
                         _ => {}
                     }
@@ -204,35 +227,10 @@ impl BrowserWindow {
         let storage_for_protocol = storage.clone();
         let proxy_content_ipc = proxy.clone();
         let shortcuts_script = r#"
-            // Floating reveal pill when toolbar is hidden
-            (function() {
-                var revealPill = document.createElement('div');
-                revealPill.id = 'valorex-reveal-pill';
-                revealPill.innerHTML = '👁️ إظهار الشريط (F11)';
-                revealPill.style.cssText = 'position:fixed;top:-45px;left:50%;transform:translateX(-50%);background:#1e2025;color:#00d2ff;border:1px solid #282b33;border-radius:0 0 10px 10px;padding:6px 16px;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;z-index:2147483647;cursor:pointer;transition:top 0.2s cubic-bezier(0.16, 1, 0.3, 1);box-shadow:0 6px 20px rgba(0,0,0,0.6);user-select:none;display:flex;align-items:center;gap:6px;font-weight:600;';
-                document.documentElement.appendChild(revealPill);
-
-                revealPill.onclick = function() {
-                    if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'toggle_toolbar' }));
-                };
-
-                var hideTimeout;
-                window.addEventListener('mousemove', function(e) {
-                    if (e.clientY <= 6) {
-                        revealPill.style.top = '0px';
-                        clearTimeout(hideTimeout);
-                    } else if (e.clientY > 45) {
-                        hideTimeout = setTimeout(function() {
-                            revealPill.style.top = '-45px';
-                        }, 500);
-                    }
-                }, true);
-            })();
-
             window.addEventListener('keydown', function(e) {
-                if (e.key === 'F11' || (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f'))) {
+                if (e.key === 'F11') {
                     e.preventDefault();
-                    if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'toggle_toolbar' }));
+                    if (window.ipc) window.ipc.postMessage(JSON.stringify({ action: 'toggle_fullscreen' }));
                 } else if (e.ctrlKey && e.key === 'Tab') {
                     e.preventDefault();
                     if (window.ipc) {
@@ -318,8 +316,8 @@ impl BrowserWindow {
                         "zoom_reset" => {
                             let _ = proxy_content_ipc.send_event(BrowserEvent::ZoomReset);
                         }
-                        "toggle_toolbar" => {
-                            let _ = proxy_content_ipc.send_event(BrowserEvent::ToggleToolbar);
+                        "toggle_fullscreen" => {
+                            let _ = proxy_content_ipc.send_event(BrowserEvent::ToggleFullscreen);
                         }
                         "next_tab" => {
                             let _ = proxy_content_ipc.send_event(BrowserEvent::NextTab);
@@ -368,7 +366,7 @@ impl BrowserWindow {
 
         // --- GTK Dual-Layer Packing on Linux ---
         #[cfg(target_os = "linux")]
-        let (toolbar_box, toolbar_webview, content_webview) = {
+        let (toolbar_webview, content_webview) = {
             let vbox = window
                 .default_vbox()
                 .ok_or_else(|| "Failed to obtain GTK default vbox from Tao window".to_string())?;
@@ -386,7 +384,7 @@ impl BrowserWindow {
 
             let tb = toolbar_builder.build_gtk(&toolbar_box)?;
             let cb = content_builder.build_gtk(&content_box)?;
-            (toolbar_box, tb, cb)
+            (tb, cb)
         };
 
         #[cfg(not(target_os = "linux"))]
@@ -400,8 +398,7 @@ impl BrowserWindow {
 
         let instance = Self {
             window,
-            #[cfg(target_os = "linux")]
-            toolbar_box,
+            proxy,
             toolbar_webview,
             content_webview,
             tab_manager,
@@ -409,8 +406,8 @@ impl BrowserWindow {
             storage,
             config,
             zoom_level: 1.0,
-            toolbar_visible: true,
             is_fullscreen: false,
+            decorations_enabled: false,
         };
 
         instance.sync_toolbar_state();
@@ -569,21 +566,196 @@ impl BrowserWindow {
                     }
                 }
             }
-            BrowserEvent::ToggleToolbar => {
-                self.toolbar_visible = !self.toolbar_visible;
-                #[cfg(target_os = "linux")]
-                {
-                    self.toolbar_box.set_visible(self.toolbar_visible);
-                }
-                info!("Toolbar visibility toggled to: {}", self.toolbar_visible);
+            BrowserEvent::ToggleDecorations => {
+                self.decorations_enabled = !self.decorations_enabled;
+                self.window.set_decorations(self.decorations_enabled);
+                info!("Window decorations toggled to: {}", self.decorations_enabled);
+                self.sync_toolbar_state();
             }
-            BrowserEvent::SetToolbarVisible(visible) => {
-                self.toolbar_visible = visible;
+            BrowserEvent::MinimizeWindow => {
+                self.window.set_minimized(true);
+            }
+            BrowserEvent::MaximizeWindow => {
+                self.window.set_maximized(!self.window.is_maximized());
+            }
+            BrowserEvent::CloseWindow => {
+                std::process::exit(0);
+            }
+            BrowserEvent::DragWindow => {
+                let _ = self.window.drag_window();
+            }
+            BrowserEvent::ToggleFullscreen => {
+                self.is_fullscreen = !self.is_fullscreen;
+                let mode = if self.is_fullscreen {
+                    Some(tao::window::Fullscreen::Borderless(None))
+                } else {
+                    None
+                };
+                self.window.set_fullscreen(mode);
+                info!("Fullscreen toggled to: {}", self.is_fullscreen);
+            }
+            BrowserEvent::OpenMenu => {
                 #[cfg(target_os = "linux")]
                 {
-                    self.toolbar_box.set_visible(self.toolbar_visible);
+                    let menu = gtk::Menu::new();
+
+                    let item_newtab = gtk::MenuItem::with_label("New Tab (Ctrl+T)");
+                    let proxy_c = self.proxy.clone();
+                    item_newtab.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::NewTab("valorex://newtab".into()));
+                    });
+                    menu.append(&item_newtab);
+
+                    let item_history = gtk::MenuItem::with_label("History (Ctrl+H)");
+                    let proxy_c = self.proxy.clone();
+                    item_history.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::Navigate("valorex://history".into()));
+                    });
+                    menu.append(&item_history);
+
+                    let item_bookmarks = gtk::MenuItem::with_label("Bookmarks (Ctrl+B)");
+                    let proxy_c = self.proxy.clone();
+                    item_bookmarks.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::Navigate("valorex://bookmarks".into()));
+                    });
+                    menu.append(&item_bookmarks);
+
+                    let item_downloads = gtk::MenuItem::with_label("Downloads (Ctrl+J)");
+                    let proxy_c = self.proxy.clone();
+                    item_downloads.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::Navigate("valorex://downloads".into()));
+                    });
+                    menu.append(&item_downloads);
+
+                    menu.append(&gtk::SeparatorMenuItem::new());
+
+                    let item_settings = gtk::MenuItem::with_label("Settings & Shields (إعدادات المتصفح)");
+                    let proxy_c = self.proxy.clone();
+                    item_settings.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::Navigate("valorex://settings".into()));
+                    });
+                    menu.append(&item_settings);
+
+                    menu.append(&gtk::SeparatorMenuItem::new());
+
+                    let item_decor = gtk::CheckMenuItem::with_label("Use System Title Bar (شريط عنوان النظام)");
+                    item_decor.set_active(self.decorations_enabled);
+                    let proxy_c = self.proxy.clone();
+                    item_decor.connect_toggled(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::ToggleDecorations);
+                    });
+                    menu.append(&item_decor);
+
+                    menu.append(&gtk::SeparatorMenuItem::new());
+
+                    let item_exit = gtk::MenuItem::with_label("Exit Valorex");
+                    item_exit.connect_activate(|_| {
+                        std::process::exit(0);
+                    });
+                    menu.append(&item_exit);
+
+                    menu.show_all();
+                    menu.popup_easy(3, gtk::current_event_time());
                 }
-                info!("Toolbar visibility set to: {}", self.toolbar_visible);
+            }
+            BrowserEvent::OpenTabContextMenu(tab_id) => {
+                #[cfg(target_os = "linux")]
+                {
+                    let menu = gtk::Menu::new();
+
+                    let item_newtab = gtk::MenuItem::with_label("New Tab (Ctrl+T)");
+                    let proxy_c = self.proxy.clone();
+                    item_newtab.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::NewTab("valorex://newtab".into()));
+                    });
+                    menu.append(&item_newtab);
+
+                    let item_reload = gtk::MenuItem::with_label("Reload Tab (Ctrl+R)");
+                    let proxy_c = self.proxy.clone();
+                    item_reload.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::Reload);
+                    });
+                    menu.append(&item_reload);
+
+                    let item_dup = gtk::MenuItem::with_label("Duplicate Tab");
+                    let proxy_c = self.proxy.clone();
+                    item_dup.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::DuplicateTab(tab_id));
+                    });
+                    menu.append(&item_dup);
+
+                    let is_pinned = self.tab_manager.tabs().iter().find(|t| t.id == tab_id).map(|t| t.is_pinned).unwrap_or(false);
+                    let pin_label = if is_pinned { "Unpin Tab" } else { "Pin Tab" };
+                    let item_pin = gtk::MenuItem::with_label(pin_label);
+                    let proxy_c = self.proxy.clone();
+                    item_pin.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::PinTab(tab_id));
+                    });
+                    menu.append(&item_pin);
+
+                    menu.append(&gtk::SeparatorMenuItem::new());
+
+                    let item_close = gtk::MenuItem::with_label("Close Tab (Ctrl+W)");
+                    let proxy_c = self.proxy.clone();
+                    item_close.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::CloseTab(tab_id));
+                    });
+                    menu.append(&item_close);
+
+                    let item_close_others = gtk::MenuItem::with_label("Close Other Tabs");
+                    let proxy_c = self.proxy.clone();
+                    item_close_others.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::CloseOtherTabs(tab_id));
+                    });
+                    menu.append(&item_close_others);
+
+                    menu.append(&gtk::SeparatorMenuItem::new());
+
+                    let item_decor = gtk::CheckMenuItem::with_label("Use System Title Bar (شريط عنوان النظام)");
+                    item_decor.set_active(self.decorations_enabled);
+                    let proxy_c = self.proxy.clone();
+                    item_decor.connect_toggled(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::ToggleDecorations);
+                    });
+                    menu.append(&item_decor);
+
+                    menu.show_all();
+                    menu.popup_easy(3, gtk::current_event_time());
+                }
+            }
+            BrowserEvent::OpenShieldMenu => {
+                #[cfg(target_os = "linux")]
+                {
+                    let menu = gtk::Menu::new();
+                    let (enabled, count) = {
+                        let s = self.shield.lock().unwrap();
+                        (s.is_enabled(), s.get_blocked_count())
+                    };
+
+                    let item_status = gtk::CheckMenuItem::with_label("Shield Protection (حماية الدرع)");
+                    item_status.set_active(enabled);
+                    let proxy_c = self.proxy.clone();
+                    item_status.connect_toggled(move |item| {
+                        let _ = proxy_c.send_event(BrowserEvent::ToggleShield(Some(item.is_active())));
+                    });
+                    menu.append(&item_status);
+
+                    let item_count = gtk::MenuItem::with_label(&format!("Trackers & Ads Blocked: {}", count));
+                    item_count.set_sensitive(false);
+                    menu.append(&item_count);
+
+                    menu.append(&gtk::SeparatorMenuItem::new());
+
+                    let item_settings = gtk::MenuItem::with_label("Open Shield Settings & Rules (الإعدادات)");
+                    let proxy_c = self.proxy.clone();
+                    item_settings.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::Navigate("valorex://settings".into()));
+                    });
+                    menu.append(&item_settings);
+
+                    menu.show_all();
+                    menu.popup_easy(3, gtk::current_event_time());
+                }
             }
             BrowserEvent::DuplicateTab(id) => {
                 if let Some(new_id) = self.tab_manager.duplicate_tab(id) {
@@ -655,6 +827,7 @@ impl BrowserWindow {
             "blocked_count": blocked_count,
             "shields_enabled": shield_enabled,
             "is_bookmarked": is_bookmarked,
+            "decorations_enabled": self.decorations_enabled,
             "tabs": tabs_json,
         });
 

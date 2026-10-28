@@ -377,109 +377,63 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   }
 
   input:checked + .slider {
-    background-color: var(--shield-cyan);
+  /* --- Window Controls (CSD mode like Chrome/Brave) --- */
+  .tab-drag-spacer {
+    flex: 1;
+    height: 100%;
+    min-width: 20px;
+    cursor: default;
   }
 
-  input:checked + .slider:before {
-    transform: translateX(16px);
-  }
-
-  .shield-stat-row {
+  .window-controls {
     display: flex;
-    justify-content: space-between;
-    padding: 6px 0;
+    align-items: center;
+    height: 100%;
+    margin-left: auto;
+    padding-right: 4px;
+    gap: 2px;
+  }
+
+  .win-btn {
+    width: 32px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
     color: var(--text-secondary);
-    font-size: 12px;
-  }
-
-  .shield-stat-value {
-    color: var(--text-primary);
-    font-weight: bold;
-  }
-
-  /* --- Menu Dropdown --- */
-  .menu-popup {
-    display: none;
-    position: absolute;
-    top: 48px;
-    right: 10px;
-    width: 180px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: 0 12px 30px rgba(0,0,0,0.6);
-    padding: 6px;
-    z-index: 1000;
-  }
-
-  .menu-popup.open {
-    display: block;
-    animation: fadeIn 0.15s ease-out;
-  }
-
-  .menu-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    border-radius: 6px;
     cursor: pointer;
-    color: var(--text-primary);
-    font-size: 12px;
-    transition: background 0.15s;
+    font-size: 13px;
+    border-radius: 4px;
+    transition: background 0.15s, color 0.15s;
   }
 
-  .menu-item:hover {
+  .win-btn:hover {
     background: var(--bg-hover);
-  }
-  .tab-context-menu {
-    display: none;
-    position: fixed;
-    z-index: 2000;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 12px 30px rgba(0,0,0,0.6);
-    padding: 6px;
-    min-width: 180px;
-  }
-
-  .tab-context-menu.open {
-    display: block;
-    animation: fadeIn 0.12s ease-out;
-  }
-
-  .tab-context-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 10px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 12px;
     color: var(--text-primary);
-    transition: background 0.15s;
   }
 
-  .tab-context-item:hover {
-    background: var(--bg-hover);
-  }
-
-  .tab-context-divider {
-    height: 1px;
-    background: var(--border);
-    margin: 4px 0;
+  .win-close:hover {
+    background: #e11d48;
+    color: #fff;
   }
 </style>
 </head>
 <body>
 
-  <!-- Top Tab Bar -->
+  <!-- Top Tab Bar (with CSD window controls & drag space) -->
   <div class="tab-bar" id="tab-bar">
     <!-- Tabs injected dynamically by JS -->
     <button class="new-tab-btn" id="new-tab-btn" title="Open new tab (Ctrl+T)">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
     </button>
+    <div class="tab-drag-spacer" id="tab-drag-spacer"></div>
+    <div class="window-controls" id="window-controls">
+      <button class="win-btn" id="win-min" title="Minimize">&#x2212;</button>
+      <button class="win-btn" id="win-max" title="Maximize / Restore">&#x25A2;</button>
+      <button class="win-btn win-close" id="win-close" title="Close">&#x2715;</button>
+    </div>
   </div>
 
   <!-- Navigation Toolbar -->
@@ -513,84 +467,21 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     </div>
 
     <!-- Valorex Shield Button & Badge -->
-    <button class="shield-btn" id="shield-btn" title="Valorex Privacy Shield">
+    <button class="shield-btn" id="shield-btn" title="Valorex Privacy Shield (Click for options)">
       <svg class="shield-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
       <span id="shield-count">0</span>
     </button>
 
-    <!-- Zen Mode (Toggle Toolbar) Button -->
-    <button class="icon-btn" id="zen-btn" title="Hide Toolbar / Focus Mode (F11 / Ctrl+Shift+F)">
-      <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-    </button>
-
-    <!-- Menu Button -->
+    <!-- Menu Button (3 dots) -->
     <button class="icon-btn" id="menu-btn" title="Valorex Menu">
       <svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
     </button>
-  </div>
-
-  <!-- Shield Stats Popup -->
-  <div class="shield-popup" id="shield-popup">
-    <div class="shield-header">
-      <span class="shield-title">Valorex Shields</span>
-      <label class="toggle-switch">
-        <input type="checkbox" id="shield-toggle" checked>
-        <span class="slider"></span>
-      </label>
-    </div>
-    <div class="shield-stat-row">
-      <span>Trackers & Ads Blocked:</span>
-      <span class="shield-stat-value" id="popup-blocked-count">0</span>
-    </div>
-    <div class="shield-stat-row">
-      <span>Cosmetic Elements Cleaned:</span>
-      <span class="shield-stat-value">Active</span>
-    </div>
-    <div class="shield-stat-row">
-      <span>Connection Protection:</span>
-      <span class="shield-stat-value" style="color: #10b981;">HTTPS / Secure</span>
-    </div>
-  </div>
-
-  <!-- Menu Popup -->
-  <div class="menu-popup" id="menu-popup">
-    <div class="menu-item" onclick="navigateInternal('valorex://newtab')">
-      <span>🚀</span> New Tab Page
-    </div>
-    <div class="menu-item" onclick="navigateInternal('valorex://history')">
-      <span>🕒</span> History (Ctrl+H)
-    </div>
-    <div class="menu-item" onclick="navigateInternal('valorex://bookmarks')">
-      <span>⭐</span> Bookmarks (Ctrl+B)
-    </div>
-    <div class="menu-item" onclick="navigateInternal('valorex://downloads')">
-      <span>📥</span> Downloads (Ctrl+J)
-    </div>
-    <div class="menu-item" onclick="navigateInternal('valorex://settings')">
-      <span>⚙️</span> Settings & Shields
-    </div>
-    <div class="menu-item" onclick="toggleToolbarMode()">
-      <span>🔲</span> Hide Toolbar (F11)
-    </div>
-  </div>
-
-  <!-- Tab Context Menu -->
-  <div class="tab-context-menu" id="tab-context-menu">
-    <div class="tab-context-item" id="ctx-new-tab"><span>➕</span> New Tab (Ctrl+T)</div>
-    <div class="tab-context-item" id="ctx-reload"><span>🔄</span> Reload Tab (Ctrl+R)</div>
-    <div class="tab-context-item" id="ctx-duplicate"><span>📑</span> Duplicate Tab</div>
-    <div class="tab-context-item" id="ctx-pin"><span id="ctx-pin-icon">📌</span> <span id="ctx-pin-text">Pin Tab</span></div>
-    <div class="tab-context-divider"></div>
-    <div class="tab-context-item" id="ctx-close"><span>❌</span> Close Tab (Ctrl+W)</div>
-    <div class="tab-context-item" id="ctx-close-others"><span>🚫</span> Close Other Tabs</div>
   </div>
 
 <script>
   let tabsState = [
     { id: 1, title: 'New Tab', url: 'valorex://newtab', active: true, pinned: false }
   ];
-  let contextTabId = null;
-  const ctxMenu = document.getElementById('tab-context-menu');
 
   function post(msg) {
     if (window.ipc) {
@@ -598,14 +489,9 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     }
   }
 
-  function toggleToolbarMode() {
-    post({ action: 'toggle_toolbar' });
-    menuPopup.classList.remove('open');
-  }
-
   function renderTabs() {
     const tabBar = document.getElementById('tab-bar');
-    const newBtn = document.getElementById('new-tab-btn');
+    const dragSpacer = document.getElementById('tab-drag-spacer');
     
     // Remove existing tabs
     const oldTabs = tabBar.querySelectorAll('.tab');
@@ -626,15 +512,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
       tabEl.oncontextmenu = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        contextTabId = tab.id;
-        document.getElementById('ctx-pin-text').textContent = tab.pinned ? 'Unpin Tab' : 'Pin Tab';
-        document.getElementById('ctx-pin-icon').textContent = tab.pinned ? '📍' : '📌';
-
-        ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - 190) + 'px';
-        ctxMenu.style.top = '38px';
-        ctxMenu.classList.add('open');
-        shieldPopup.classList.remove('open');
-        menuPopup.classList.remove('open');
+        post({ action: 'open_tab_context', id: tab.id });
       };
 
       // Drag and drop reordering
@@ -670,35 +548,9 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
         post({ action: 'close_tab', id: tab.id });
       };
 
-      tabBar.insertBefore(tabEl, newBtn);
+      tabBar.insertBefore(tabEl, dragSpacer);
     });
   }
-
-  // Context Menu Actions
-  document.getElementById('ctx-new-tab').onclick = () => {
-    ctxMenu.classList.remove('open');
-    post({ action: 'new_tab', url: 'valorex://newtab' });
-  };
-  document.getElementById('ctx-reload').onclick = () => {
-    ctxMenu.classList.remove('open');
-    post({ action: 'reload' });
-  };
-  document.getElementById('ctx-duplicate').onclick = () => {
-    ctxMenu.classList.remove('open');
-    if (contextTabId) post({ action: 'duplicate_tab', id: contextTabId });
-  };
-  document.getElementById('ctx-pin').onclick = () => {
-    ctxMenu.classList.remove('open');
-    if (contextTabId) post({ action: 'pin_tab', id: contextTabId });
-  };
-  document.getElementById('ctx-close').onclick = () => {
-    ctxMenu.classList.remove('open');
-    if (contextTabId) post({ action: 'close_tab', id: contextTabId });
-  };
-  document.getElementById('ctx-close-others').onclick = () => {
-    ctxMenu.classList.remove('open');
-    if (contextTabId) post({ action: 'close_other_tabs', id: contextTabId });
-  };
 
   // Address Bar Navigation
   const addressInput = document.getElementById('address-input');
@@ -719,45 +571,30 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   document.getElementById('home-btn').onclick = () => post({ action: 'navigate', url: 'valorex://newtab' });
   document.getElementById('new-tab-btn').onclick = () => post({ action: 'new_tab', url: 'valorex://newtab' });
   document.getElementById('bookmark-btn').onclick = () => post({ action: 'toggle_bookmark' });
-  document.getElementById('zen-btn').onclick = () => toggleToolbarMode();
 
-  // Shield Dropdown
-  const shieldBtn = document.getElementById('shield-btn');
-  const shieldPopup = document.getElementById('shield-popup');
-  const shieldToggle = document.getElementById('shield-toggle');
-  
-  shieldBtn.onclick = (e) => {
-    e.stopPropagation();
-    shieldPopup.classList.toggle('open');
-    menuPopup.classList.remove('open');
-    ctxMenu.classList.remove('open');
-  };
+  // Native Menus
+  document.getElementById('shield-btn').onclick = () => post({ action: 'open_shield_menu' });
+  document.getElementById('menu-btn').onclick = () => post({ action: 'open_menu' });
 
-  shieldToggle.onchange = () => {
-    post({ action: 'toggle_shield', enabled: shieldToggle.checked });
-  };
+  // Window Controls
+  document.getElementById('win-min').onclick = () => post({ action: 'minimize_window' });
+  document.getElementById('win-max').onclick = () => post({ action: 'maximize_window' });
+  document.getElementById('win-close').onclick = () => post({ action: 'close_window' });
 
-  // Menu Dropdown
-  const menuBtn = document.getElementById('menu-btn');
-  const menuPopup = document.getElementById('menu-popup');
-  menuBtn.onclick = (e) => {
-    e.stopPropagation();
-    menuPopup.classList.toggle('open');
-    shieldPopup.classList.remove('open');
-    ctxMenu.classList.remove('open');
-  };
-
-  document.addEventListener('click', () => {
-    shieldPopup.classList.remove('open');
-    menuPopup.classList.remove('open');
-    ctxMenu.classList.remove('open');
+  // Window Dragging & Maximize on Tab Bar
+  const dragSpacer = document.getElementById('tab-drag-spacer');
+  dragSpacer.addEventListener('mousedown', (e) => {
+    if (e.button === 0) post({ action: 'drag_window' });
+  });
+  dragSpacer.addEventListener('dblclick', () => {
+    post({ action: 'maximize_window' });
   });
 
   // Keyboard navigation within chrome
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'F11' || (e.ctrlKey && e.shiftKey && (e.key === 'F' || e.key === 'f'))) {
+    if (e.key === 'F11') {
       e.preventDefault();
-      toggleToolbarMode();
+      post({ action: 'toggle_fullscreen' });
     } else if (e.ctrlKey && e.key === 'Tab') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -770,11 +607,6 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
       post({ action: 'switch_tab_index', index: parseInt(e.key) - 1 });
     }
   });
-
-  function navigateInternal(url) {
-    post({ action: 'navigate', url });
-    menuPopup.classList.remove('open');
-  }
 
   // Public update API called from Rust evaluate_script
   window.valorexUpdate = function(state) {
@@ -789,14 +621,16 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     }
     if (state.blocked_count !== undefined) {
       document.getElementById('shield-count').textContent = state.blocked_count;
-      document.getElementById('popup-blocked-count').textContent = state.blocked_count;
     }
     if (state.shields_enabled !== undefined) {
-      shieldToggle.checked = state.shields_enabled;
-      shieldBtn.classList.toggle('disabled', !state.shields_enabled);
+      document.getElementById('shield-btn').classList.toggle('disabled', !state.shields_enabled);
     }
     if (state.is_bookmarked !== undefined) {
       document.getElementById('bookmark-btn').classList.toggle('active', state.is_bookmarked);
+    }
+    if (state.decorations_enabled !== undefined) {
+      const controls = document.getElementById('window-controls');
+      if (controls) controls.style.display = state.decorations_enabled ? 'none' : 'flex';
     }
     if (state.tabs) {
       tabsState = state.tabs;

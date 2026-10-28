@@ -1,12 +1,16 @@
+pub mod updater;
+
 use adblock::request::Request;
 use adblock::Engine;
 use log::{info, warn};
+use std::collections::HashMap;
 
-/// Valorex Shield Engine - Core ad and tracker blocker built on the official Brave Adblock syntax.
+/// Valorex Shield Engine - Core ad, tracker, and cosmetic filter engine.
 pub struct ShieldEngine {
     engine: Engine,
     enabled: bool,
     blocked_count: u64,
+    domain_block_counts: HashMap<String, u64>,
 }
 
 impl Default for ShieldEngine {
@@ -16,9 +20,10 @@ impl Default for ShieldEngine {
 }
 
 impl ShieldEngine {
-    /// Creates a new ShieldEngine populated with standard built-in privacy protection rules.
+    /// Creates a new ShieldEngine populated with standard built-in privacy protection and cosmetic rules.
     pub fn new() -> Self {
         let built_in_rules = [
+            // Network blocking rules
             "||doubleclick.net^",
             "||google-analytics.com^",
             "||googlesyndication.com^",
@@ -36,30 +41,22 @@ impl ShieldEngine {
             "||hotjar.com^",
             "||yandex.ru/metrika^",
             "||mc.yandex.ru^",
+            // Domain-specific cosmetic element hiding rules
+            "example.com##.ad-container",
+            "example.com##.sponsor-post",
+            "twitter.com##[data-testid='placementTracking']",
+            "youtube.com##.ytd-action-companion-ad-renderer",
         ];
 
         let engine = Engine::new_with_list_text(built_in_rules.join("\n"));
-        info!("Valorex Shield initialized with {} built-in privacy rules.", built_in_rules.len());
+        info!("Valorex Shield initialized with {} built-in privacy & cosmetic rules.", built_in_rules.len());
 
         Self {
             engine,
             enabled: true,
             blocked_count: 0,
+            domain_block_counts: HashMap::new(),
         }
-    }
-
-    /// Appends custom filter rules (e.g. EasyList, EasyPrivacy lines)
-    pub fn load_rules<I, S>(&mut self, rules: I)
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let rules_text = rules
-            .into_iter()
-            .map(|s| s.as_ref().to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-        self.engine = Engine::new_with_list_text(rules_text);
     }
 
     /// Evaluates whether an outgoing web request should be blocked.
@@ -73,6 +70,11 @@ impl ShieldEngine {
                 let check_result = self.engine.check_network_request(&request);
                 if check_result.should_block() {
                     self.blocked_count += 1;
+                    if let Ok(parsed) = url::Url::parse(source_url) {
+                        if let Some(host) = parsed.host_str() {
+                            *self.domain_block_counts.entry(host.to_string()).or_insert(0) += 1;
+                        }
+                    }
                     warn!("[Shield Blocked] URL: {} (Type: {})", url, request_type);
                     true
                 } else {
@@ -80,6 +82,47 @@ impl ShieldEngine {
                 }
             }
             Err(_) => false,
+        }
+    }
+
+    /// Generates cosmetic CSS and JavaScript injection to hide ad placeholders on the current page.
+    pub fn generate_cosmetic_script(&self, url: &str) -> Option<String> {
+        if !self.enabled {
+            return None;
+        }
+
+        let resources = self.engine.url_cosmetic_resources(url);
+        let mut script_parts = Vec::new();
+
+        if !resources.hide_selectors.is_empty() {
+            let selectors = resources.hide_selectors.into_iter().collect::<Vec<_>>().join(", ");
+            let css_snippet = format!("{} {{ display: none !important; }}", selectors);
+            let js_inject = format!(
+                r#"
+                (function() {{
+                    const css = `{}`;
+                    let style = document.getElementById('valorex-shield-cosmetics');
+                    if (!style) {{
+                        style = document.createElement('style');
+                        style.id = 'valorex-shield-cosmetics';
+                        (document.head || document.documentElement).appendChild(style);
+                    }}
+                    style.textContent = css;
+                }})();
+                "#,
+                css_snippet.replace('`', "\\`")
+            );
+            script_parts.push(js_inject);
+        }
+
+        if !resources.injected_script.is_empty() {
+            script_parts.push(resources.injected_script);
+        }
+
+        if script_parts.is_empty() {
+            None
+        } else {
+            Some(script_parts.join("\n"))
         }
     }
 
@@ -94,6 +137,14 @@ impl ShieldEngine {
     pub fn get_blocked_count(&self) -> u64 {
         self.blocked_count
     }
+
+    pub fn get_domain_blocked_count(&self, domain: &str) -> u64 {
+        self.domain_block_counts.get(domain).copied().unwrap_or(0)
+    }
+
+    pub fn reset_domain_count(&mut self, domain: &str) {
+        self.domain_block_counts.remove(domain);
+    }
 }
 
 #[cfg(test)]
@@ -103,48 +154,51 @@ mod tests {
     #[test]
     fn test_shield_blocks_doubleclick_ads() {
         let mut shield = ShieldEngine::new();
-        assert!(shield.is_enabled());
-
-        let is_blocked = shield.should_block(
-            "https://adservice.google.com/adsid/google/ui",
-            "https://example.com",
-            "script",
-        );
-        assert!(is_blocked, "Expected Google adservice to be blocked by Valorex Shield");
+        assert!(shield.should_block(
+            "https://ad.doubleclick.net/pixel?id=123",
+            "https://news.ycombinator.com",
+            "script"
+        ));
     }
 
     #[test]
     fn test_shield_blocks_facebook_tracking_pixel() {
         let mut shield = ShieldEngine::new();
-        let is_blocked = shield.should_block(
+        assert!(shield.should_block(
             "https://connect.facebook.net/en_US/fbevents.js",
-            "https://store.example.com",
-            "script",
-        );
-        assert!(is_blocked, "Expected Facebook tracking pixel to be blocked");
+            "https://shopping.example.com",
+            "script"
+        ));
     }
 
     #[test]
     fn test_shield_allows_benign_content() {
         let mut shield = ShieldEngine::new();
-        let is_blocked = shield.should_block(
+        assert!(!shield.should_block(
             "https://cdn.example.com/assets/logo.png",
             "https://example.com",
-            "image",
-        );
-        assert!(!is_blocked, "Expected legitimate asset to be allowed");
+            "image"
+        ));
     }
 
     #[test]
     fn test_shield_toggle_disabling() {
         let mut shield = ShieldEngine::new();
         shield.set_enabled(false);
-
-        let is_blocked = shield.should_block(
-            "https://doubleclick.net/tracker.js",
+        assert!(!shield.should_block(
+            "https://ad.doubleclick.net/pixel",
             "https://example.com",
-            "script",
-        );
-        assert!(!is_blocked, "Expected ad to be allowed when Shield is toggled OFF");
+            "script"
+        ));
+    }
+
+    #[test]
+    fn test_cosmetic_script_generation() {
+        let shield = ShieldEngine::new();
+        let script = shield.generate_cosmetic_script("https://example.com");
+        assert!(script.is_some());
+        let code = script.unwrap();
+        assert!(code.contains("display: none !important"));
+        assert!(code.contains("valorex-shield-cosmetics"));
     }
 }

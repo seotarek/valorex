@@ -1,68 +1,372 @@
+pub mod events;
+pub mod tab;
+
+use crate::browser::events::BrowserEvent;
+use crate::browser::tab::TabManager;
+use crate::config::BrowserConfig;
+use crate::protocol::InternalPages;
+use crate::shield::ShieldEngine;
+use crate::storage::StorageEngine;
+use crate::ui::CHROME_HTML;
+use log::{info, warn};
 use std::sync::{Arc, Mutex};
 use tao::{
     dpi::LogicalSize,
-    event_loop::EventLoopWindowTarget,
+    event_loop::{EventLoopProxy, EventLoopWindowTarget},
     window::{Window, WindowBuilder},
 };
-use wry::{WebView, WebViewBuilder};
-use crate::config::BrowserConfig;
-use crate::shield::ShieldEngine;
-use log::info;
+use wry::{http, PageLoadEvent, WebView, WebViewBuilder};
+
+#[cfg(target_os = "linux")]
+use gtk::prelude::*;
+#[cfg(target_os = "linux")]
+use tao::platform::unix::WindowExtUnix;
+#[cfg(target_os = "linux")]
+use wry::WebViewBuilderExtUnix;
 
 pub struct BrowserWindow {
     pub window: Window,
-    pub webview: WebView,
+    pub toolbar_webview: WebView,
+    pub content_webview: WebView,
+    pub tab_manager: TabManager,
     pub shield: Arc<Mutex<ShieldEngine>>,
+    pub storage: StorageEngine,
     pub config: BrowserConfig,
 }
 
 impl BrowserWindow {
-    pub fn new<T>(
-        event_loop: &EventLoopWindowTarget<T>,
+    pub fn new(
+        event_loop: &EventLoopWindowTarget<BrowserEvent>,
+        proxy: EventLoopProxy<BrowserEvent>,
         config: BrowserConfig,
         shield: Arc<Mutex<ShieldEngine>>,
+        storage: StorageEngine,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let window = WindowBuilder::new()
             .with_title("Valorex")
             .with_inner_size(LogicalSize::new(1280.0, 800.0))
-            .with_min_inner_size(LogicalSize::new(400.0, 300.0))
+            .with_min_inner_size(LogicalSize::new(450.0, 350.0))
             .build(event_loop)?;
 
         let initial_url = config.homepage.clone();
-        info!("Launching Valorex webview pointing to: {}", initial_url);
+        info!("Launching Valorex webview with initial homepage: {}", initial_url);
 
-        let builder = WebViewBuilder::new()
+        // --- Toolbar Webview Builder ---
+        let proxy_ipc = proxy.clone();
+        let toolbar_builder = WebViewBuilder::new()
+            .with_html(CHROME_HTML)
+            .with_ipc_handler(move |req: wry::http::Request<String>| {
+                #[derive(serde::Deserialize)]
+                struct IpcPayload {
+                    action: String,
+                    url: Option<String>,
+                    id: Option<usize>,
+                    enabled: Option<bool>,
+                }
+
+                let msg = req.body();
+                if let Ok(payload) = serde_json::from_str::<IpcPayload>(msg) {
+                    match payload.action.as_str() {
+                        "navigate" => {
+                            if let Some(url) = payload.url {
+                                let _ = proxy_ipc.send_event(BrowserEvent::Navigate(url));
+                            }
+                        }
+                        "go_back" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::GoBack);
+                        }
+                        "go_forward" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::GoForward);
+                        }
+                        "reload" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::Reload);
+                        }
+                        "new_tab" => {
+                            let url = payload.url.unwrap_or_else(|| "https://duckduckgo.com".to_string());
+                            let _ = proxy_ipc.send_event(BrowserEvent::NewTab(url));
+                        }
+                        "close_tab" => {
+                            if let Some(id) = payload.id {
+                                let _ = proxy_ipc.send_event(BrowserEvent::CloseTab(id));
+                            }
+                        }
+                        "switch_tab" => {
+                            if let Some(id) = payload.id {
+                                let _ = proxy_ipc.send_event(BrowserEvent::SwitchTab(id));
+                            }
+                        }
+                        "toggle_shield" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::ToggleShield(payload.enabled));
+                        }
+                        "toggle_bookmark" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::ToggleBookmark);
+                        }
+                        "clear_history" => {
+                            let _ = proxy_ipc.send_event(BrowserEvent::ClearHistory);
+                        }
+                        "delete_bookmark" => {
+                            if let Some(id) = payload.id {
+                                let _ = proxy_ipc.send_event(BrowserEvent::DeleteBookmark(id as i64));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            });
+
+        // --- Content Webview Builder ---
+        let proxy_load = proxy.clone();
+        let on_page_load = move |event: PageLoadEvent, url: String| {
+            if let PageLoadEvent::Finished = event {
+                let _ = proxy_load.send_event(BrowserEvent::PageLoaded(url));
+            }
+        };
+
+        let proxy_title = proxy.clone();
+        let on_title = move |title: String| {
+            let _ = proxy_title.send_event(BrowserEvent::TitleChanged(title));
+        };
+
+        let shield_for_nav = shield.clone();
+        let on_navigate = move |url: String| -> bool {
+            let mut s = shield_for_nav.lock().unwrap();
+            if s.should_block(&url, &url, "document") {
+                warn!("Valorex Shield blocked navigation to: {}", url);
+                false
+            } else {
+                true
+            }
+        };
+
+        let blocked_counter = shield.lock().unwrap().blocked_counter();
+        let storage_for_protocol = storage.clone();
+        let content_builder = WebViewBuilder::new()
             .with_url(&initial_url)
-            .with_devtools(true);
+            .with_devtools(true)
+            .with_on_page_load_handler(on_page_load)
+            .with_document_title_changed_handler(on_title)
+            .with_navigation_handler(on_navigate)
+            .with_custom_protocol("valorex".into(), move |_id, req| {
+                use std::sync::atomic::Ordering;
+                let uri = req.uri().to_string();
+                let body = if uri.contains("newtab") {
+                    InternalPages::render_newtab(blocked_counter.load(Ordering::Relaxed))
+                } else if uri.contains("history") {
+                    InternalPages::render_history(&storage_for_protocol)
+                } else if uri.contains("bookmarks") {
+                    InternalPages::render_bookmarks(&storage_for_protocol)
+                } else if uri.contains("settings") {
+                    InternalPages::render_settings()
+                } else {
+                    InternalPages::render_newtab(0)
+                };
 
+                http::Response::builder()
+                    .header("content-type", "text/html; charset=utf-8")
+                    .status(200)
+                    .body(body.as_bytes().to_vec())
+                    .unwrap()
+                    .map(Into::into)
+            });
+
+        // --- GTK Dual-Layer Packing on Linux ---
         #[cfg(target_os = "linux")]
-        let webview = {
-            use tao::platform::unix::WindowExtUnix;
-            use wry::WebViewBuilderExtUnix;
+        let (toolbar_webview, content_webview) = {
             let vbox = window
                 .default_vbox()
                 .ok_or_else(|| "Failed to obtain GTK default vbox from Tao window".to_string())?;
-            builder.build_gtk(vbox)?
+
+            let toolbar_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            toolbar_box.set_size_request(-1, 82);
+
+            let content_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+
+            vbox.pack_start(&toolbar_box, false, false, 0);
+            vbox.pack_start(&content_box, true, true, 0);
+
+            toolbar_box.show_all();
+            content_box.show_all();
+
+            let tb = toolbar_builder.build_gtk(&toolbar_box)?;
+            let cb = content_builder.build_gtk(&content_box)?;
+            (tb, cb)
         };
 
         #[cfg(not(target_os = "linux"))]
-        let webview = builder.build(&window)?;
+        let (toolbar_webview, content_webview) = {
+            let tb = toolbar_builder.build(&window)?;
+            let cb = content_builder.build(&window)?;
+            (tb, cb)
+        };
 
-        Ok(Self {
+        let tab_manager = TabManager::new(&initial_url);
+
+        let instance = Self {
             window,
-            webview,
+            toolbar_webview,
+            content_webview,
+            tab_manager,
             shield,
+            storage,
             config,
-        })
+        };
+
+        instance.sync_toolbar_state();
+
+        Ok(instance)
     }
 
-    pub fn navigate(&self, url: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let valid_url = if !url.starts_with("http://") && !url.starts_with("https://") && !url.starts_with("file://") {
-            format!("https://duckduckgo.com/?q={}", url)
+    pub fn handle_event(&mut self, event: BrowserEvent) {
+        match event {
+            BrowserEvent::Navigate(raw_url) => {
+                let resolved = Self::resolve_url(&raw_url);
+                info!("Navigating to: {}", resolved);
+                if let Err(e) = self.content_webview.load_url(&resolved) {
+                    warn!("Failed to load URL {}: {}", resolved, e);
+                }
+                if let Some(tab) = self.tab_manager.active_tab_mut() {
+                    tab.url = resolved;
+                }
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::PageLoaded(url) => {
+                info!("Page loaded: {}", url);
+                if let Some(tab) = self.tab_manager.active_tab_mut() {
+                    tab.url = url.clone();
+                    tab.can_go_back = self.content_webview.can_go_back().unwrap_or(false);
+                    tab.can_go_forward = self.content_webview.can_go_forward().unwrap_or(false);
+                }
+
+                // Inject cosmetic ad blocking CSS if available
+                let cosmetic_script = {
+                    let s = self.shield.lock().unwrap();
+                    s.generate_cosmetic_script(&url)
+                };
+                if let Some(script) = cosmetic_script {
+                    let _ = self.content_webview.evaluate_script(&script);
+                }
+
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::TitleChanged(title) => {
+                if let Some(tab) = self.tab_manager.active_tab_mut() {
+                    tab.title = title.clone();
+                    let url = tab.url.clone();
+                    let _ = self.storage.record_history(&url, &title);
+                }
+                let _ = self.window.set_title(&format!("{} - Valorex", title));
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::GoBack => {
+                let _ = self.content_webview.go_back();
+            }
+            BrowserEvent::GoForward => {
+                let _ = self.content_webview.go_forward();
+            }
+            BrowserEvent::Reload => {
+                let _ = self.content_webview.reload();
+            }
+            BrowserEvent::NewTab(url) => {
+                let resolved = Self::resolve_url(&url);
+                let _id = self.tab_manager.new_tab(&resolved);
+                let _ = self.content_webview.load_url(&resolved);
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::CloseTab(id) => {
+                if let Some(new_active_id) = self.tab_manager.close_tab(id) {
+                    if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_active_id) {
+                        let _ = self.content_webview.load_url(&tab.url);
+                    }
+                }
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::SwitchTab(id) => {
+                if self.tab_manager.switch_tab(id) {
+                    if let Some(tab) = self.tab_manager.active_tab() {
+                        let _ = self.content_webview.load_url(&tab.url);
+                    }
+                }
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::ToggleShield(enabled_opt) => {
+                let mut s = self.shield.lock().unwrap();
+                let new_state = enabled_opt.unwrap_or(!s.is_enabled());
+                s.set_enabled(new_state);
+                info!("Valorex Shields toggled to: {}", new_state);
+                drop(s);
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::ToggleBookmark => {
+                if let Some(tab) = self.tab_manager.active_tab() {
+                    let url = tab.url.clone();
+                    let title = tab.title.clone();
+                    if let Ok(is_bookmarked) = self.storage.is_bookmarked(&url) {
+                        if is_bookmarked {
+                            // Find and delete
+                            if let Ok(bookmarks) = self.storage.get_bookmarks() {
+                                if let Some(found) = bookmarks.iter().find(|b| b.url == url) {
+                                    let _ = self.storage.delete_bookmark(found.id);
+                                }
+                            }
+                        } else {
+                            let _ = self.storage.add_bookmark(&title, &url, None);
+                        }
+                    }
+                }
+                self.sync_toolbar_state();
+            }
+            BrowserEvent::ClearHistory => {
+                let _ = self.storage.clear_history();
+                let _ = self.content_webview.clear_all_browsing_data();
+                info!("Cleared browsing data and history.");
+            }
+            BrowserEvent::DeleteBookmark(id) => {
+                let _ = self.storage.delete_bookmark(id);
+                self.sync_toolbar_state();
+            }
+        }
+    }
+
+    pub fn sync_toolbar_state(&self) {
+        let (current_url, can_back, can_forward) = if let Some(tab) = self.tab_manager.active_tab() {
+            (tab.url.clone(), tab.can_go_back, tab.can_go_forward)
         } else {
-            url.to_string()
+            ("https://duckduckgo.com".to_string(), false, false)
         };
-        self.webview.load_url(&valid_url)?;
-        Ok(())
+
+        let is_bookmarked = self.storage.is_bookmarked(&current_url).unwrap_or(false);
+        let (shield_enabled, blocked_count) = {
+            let s = self.shield.lock().unwrap();
+            (s.is_enabled(), s.get_blocked_count())
+        };
+
+        let tabs_json = serde_json::Value::Array(self.tab_manager.get_tab_json_list());
+
+        let payload = serde_json::json!({
+            "url": current_url,
+            "can_go_back": can_back,
+            "can_go_forward": can_forward,
+            "blocked_count": blocked_count,
+            "shields_enabled": shield_enabled,
+            "is_bookmarked": is_bookmarked,
+            "tabs": tabs_json,
+        });
+
+        let script = format!("if (window.valorexUpdate) {{ window.valorexUpdate({}); }}", payload);
+        let _ = self.toolbar_webview.evaluate_script(&script);
+    }
+
+    pub fn resolve_url(raw: &str) -> String {
+        let trimmed = raw.trim();
+        if trimmed.starts_with("valorex://") {
+            trimmed.to_string()
+        } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.starts_with("file://") {
+            trimmed.to_string()
+        } else if trimmed.contains('.') && !trimmed.contains(' ') {
+            format!("https://{}", trimmed)
+        } else {
+            let query = trimmed.replace(' ', "+");
+            format!("https://duckduckgo.com/?q={}", query)
+        }
     }
 }

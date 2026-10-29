@@ -94,7 +94,9 @@ impl ShieldEngine {
                     self.blocked_count.fetch_add(1, Ordering::Relaxed);
                     if let Ok(parsed) = url::Url::parse(source_url) {
                         if let Some(host) = parsed.host_str() {
-                            *self.domain_block_counts.entry(host.to_string()).or_insert(0) += 1;
+                            if self.domain_block_counts.len() < 1000 || self.domain_block_counts.contains_key(host) {
+                                *self.domain_block_counts.entry(host.to_string()).or_insert(0) += 1;
+                            }
                         }
                     }
                     warn!("[Shield Blocked] URL: {} (Type: {})", url, request_type);
@@ -117,8 +119,14 @@ impl ShieldEngine {
         let mut script_parts = Vec::new();
 
         if !resources.hide_selectors.is_empty() {
-            let selectors = resources.hide_selectors.into_iter().collect::<Vec<_>>().join(", ");
-            let css_snippet = format!("{} {{ display: none !important; }}", selectors);
+            let mut css_snippet = String::new();
+            for selector in resources.hide_selectors {
+                let trimmed = selector.trim();
+                if !trimmed.is_empty() {
+                    css_snippet.push_str(trimmed);
+                    css_snippet.push_str(" { display: none !important; }\n");
+                }
+            }
             let css_json = serde_json::to_string(&css_snippet).unwrap_or_else(|_| "\"\"".to_string());
             let js_inject = format!(
                 r#"

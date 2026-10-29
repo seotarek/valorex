@@ -69,7 +69,7 @@ impl StorageEngine {
     }
 
     fn init_schema(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute_batch(
             "
             PRAGMA journal_mode = WAL;
@@ -120,7 +120,7 @@ impl StorageEngine {
             return Ok(());
         }
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute(
             "
             INSERT INTO history (url, title, visit_time, visit_count)
@@ -139,7 +139,7 @@ impl StorageEngine {
         if url.trim().is_empty() || url.starts_with("valorex://") {
             return Ok(());
         }
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute(
             "
             INSERT INTO history (url, title, visit_time, visit_count)
@@ -186,16 +186,20 @@ impl StorageEngine {
         if url.trim().is_empty() || title.trim().is_empty() || url.starts_with("valorex://") {
             return Ok(());
         }
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let now = Utc::now().to_rfc3339();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute(
-            "UPDATE history SET title = ?1 WHERE url = ?2",
-            params![title, url],
+            "INSERT INTO history (url, title, visit_time, visit_count)
+             VALUES (?1, ?2, ?3, 1)
+             ON CONFLICT(url) DO UPDATE SET
+                 title = CASE WHEN length(?2) > 0 THEN ?2 ELSE history.title END",
+            params![url, title, now],
         )?;
         Ok(())
     }
 
     pub fn get_recent_history(&self, limit: usize) -> Result<Vec<HistoryEntry>, Box<dyn std::error::Error>> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT id, url, title, visit_time, visit_count FROM history ORDER BY visit_time DESC LIMIT ?1",
         )?;
@@ -217,11 +221,12 @@ impl StorageEngine {
     }
 
     pub fn search_history(&self, query: &str) -> Result<Vec<HistoryEntry>, Box<dyn std::error::Error>> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        let pattern = format!("%{}%", query);
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let escaped = query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let pattern = format!("%{}%", escaped);
         let mut stmt = conn.prepare(
             "SELECT id, url, title, visit_time, visit_count FROM history 
-             WHERE url LIKE ?1 OR title LIKE ?1 
+             WHERE url LIKE ?1 ESCAPE '\\' OR title LIKE ?1 ESCAPE '\\' 
              ORDER BY visit_time DESC LIMIT 100",
         )?;
         let rows = stmt.query_map(params![pattern], |row| {
@@ -242,7 +247,7 @@ impl StorageEngine {
     }
 
     pub fn clear_history(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute("DELETE FROM history", [])?;
         Ok(())
     }
@@ -250,7 +255,7 @@ impl StorageEngine {
     pub fn add_bookmark(&self, title: &str, url: &str, folder: Option<&str>) -> Result<i64, Box<dyn std::error::Error>> {
         let now = Utc::now().to_rfc3339();
         let target_folder = folder.unwrap_or("default");
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let id: i64 = conn.query_row(
             "
             INSERT INTO bookmarks (title, url, created_at, folder)
@@ -266,8 +271,37 @@ impl StorageEngine {
         Ok(id)
     }
 
+    pub fn add_bookmarks_batch(&self, bookmarks: &[(&str, &str, Option<&str>)]) -> Result<usize, Box<dyn std::error::Error>> {
+        if bookmarks.is_empty() {
+            return Ok(0);
+        }
+        let now = Utc::now().to_rfc3339();
+        let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = conn.transaction()?;
+        let mut count = 0;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO bookmarks (title, url, created_at, folder)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(url) DO UPDATE SET
+                     title = ?1,
+                     folder = ?4",
+            )?;
+            for (title, url, folder) in bookmarks {
+                if url.trim().is_empty() {
+                    continue;
+                }
+                let target_folder = folder.unwrap_or("default");
+                stmt.execute(params![title, url, now, target_folder])?;
+                count += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(count)
+    }
+
     pub fn get_bookmarks(&self) -> Result<Vec<BookmarkEntry>, Box<dyn std::error::Error>> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare("SELECT id, title, url, created_at, folder FROM bookmarks ORDER BY id DESC")?;
         let rows = stmt.query_map([], |row| {
             Ok(BookmarkEntry {
@@ -287,19 +321,19 @@ impl StorageEngine {
     }
 
     pub fn delete_bookmark(&self, id: i64) -> Result<(), Box<dyn std::error::Error>> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute("DELETE FROM bookmarks WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     pub fn delete_bookmark_by_url(&self, url: &str) -> Result<bool, Box<dyn std::error::Error>> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let affected = conn.execute("DELETE FROM bookmarks WHERE url = ?1", params![url])?;
         Ok(affected > 0)
     }
 
     pub fn is_bookmarked(&self, url: &str) -> Result<bool, Box<dyn std::error::Error>> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare("SELECT COUNT(*) FROM bookmarks WHERE url = ?1")?;
         let count: i64 = stmt.query_row(params![url], |row| row.get(0))?;
         Ok(count > 0)
@@ -307,7 +341,7 @@ impl StorageEngine {
 
     pub fn get_site_shield(&self, domain: &str) -> Result<Option<bool>, Box<dyn std::error::Error>> {
         let norm_domain = domain.trim().to_lowercase();
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare("SELECT shields_enabled FROM site_shields WHERE domain = ?1")?;
         let mut rows = stmt.query(params![norm_domain])?;
         if let Some(row) = rows.next()? {
@@ -320,7 +354,7 @@ impl StorageEngine {
 
     pub fn set_site_shield(&self, domain: &str, enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
         let norm_domain = domain.trim().to_lowercase();
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute(
             "
             INSERT INTO site_shields (domain, shields_enabled, aggressive_mode)
@@ -333,20 +367,24 @@ impl StorageEngine {
     }
 
     pub fn record_download(&self, filename: &str, url: &str, path: &str) -> Result<i64, Box<dyn std::error::Error>> {
+        self.record_download_with_status(filename, url, path, "completed")
+    }
+
+    pub fn record_download_with_status(&self, filename: &str, url: &str, path: &str, status: &str) -> Result<i64, Box<dyn std::error::Error>> {
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute(
             "
             INSERT INTO downloads (filename, url, path, timestamp, status)
-            VALUES (?1, ?2, ?3, ?4, 'completed')
+            VALUES (?1, ?2, ?3, ?4, ?5)
             ",
-            params![filename, url, path, now],
+            params![filename, url, path, now, status],
         )?;
         Ok(conn.last_insert_rowid())
     }
 
     pub fn get_downloads(&self) -> Result<Vec<DownloadEntry>, Box<dyn std::error::Error>> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare("SELECT id, filename, url, path, timestamp, status FROM downloads ORDER BY id DESC")?;
         let rows = stmt.query_map([], |row| {
             Ok(DownloadEntry {
@@ -367,7 +405,7 @@ impl StorageEngine {
     }
 
     pub fn clear_downloads(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute("DELETE FROM downloads", [])?;
         Ok(())
     }
@@ -481,6 +519,30 @@ mod tests {
         assert_eq!(inserted, 2);
         let recent = storage.get_recent_history(10).unwrap();
         assert_eq!(recent.len(), 2);
+    }
+
+    #[test]
+    fn test_add_bookmarks_batch() {
+        let storage = StorageEngine::new_in_memory().unwrap();
+        let batch = vec![
+            ("Site 1", "https://site1.com", Some("Folder 1")),
+            ("Site 2", "https://site2.com", None),
+        ];
+        let inserted = storage.add_bookmarks_batch(&batch).unwrap();
+        assert_eq!(inserted, 2);
+        let bms = storage.get_bookmarks().unwrap();
+        assert_eq!(bms.len(), 2);
+    }
+
+    #[test]
+    fn test_search_history_wildcards() {
+        let storage = StorageEngine::new_in_memory().unwrap();
+        storage.record_history("https://100%real.com", "100% Real Site").unwrap();
+        storage.record_history("https://other.com", "Other Site").unwrap();
+
+        let res = storage.search_history("100%").unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].url, "https://100%real.com");
     }
 }
 

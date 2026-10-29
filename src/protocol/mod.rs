@@ -931,16 +931,22 @@ impl InternalPages {
         let dir = lang.direction();
         let lang_code = lang.code();
 
-        let (page_title, empty_label, completed_badge) = if is_ar {
-            ("التنزيلات", "لا توجد ملفات تم تنزيلها حتى الآن.", "مكتمل")
+        let (page_title, empty_label, completed_badge, failed_badge) = if is_ar {
+            ("التنزيلات", "لا توجد ملفات تم تنزيلها حتى الآن.", "مكتمل", "فشل")
         } else {
-            ("Downloads", "No downloaded files recorded yet.", "COMPLETED")
+            ("Downloads", "No downloaded files recorded yet.", "COMPLETED", "FAILED")
         };
 
         let mut list_html = String::new();
         for item in entries {
             let safe_filename = escape_html(&item.filename);
             let safe_path = escape_html(&item.path);
+            let is_failed = item.status == "failed";
+            let (badge_text, badge_class) = if is_failed {
+                (failed_badge, "badge failed")
+            } else {
+                (completed_badge, "badge")
+            };
             list_html.push_str(&format!(
                 r#"<div class="download-item">
                     <span class="file-icon">📥</span>
@@ -948,9 +954,9 @@ impl InternalPages {
                       <div class="filename">{}</div>
                       <div class="filepath">{}</div>
                     </div>
-                    <span class="badge">{}</span>
+                    <span class="{}">{}</span>
                 </div>"#,
-                safe_filename, safe_path, completed_badge
+                safe_filename, safe_path, badge_class, badge_text
             ));
         }
 
@@ -996,7 +1002,7 @@ impl InternalPages {
   }}
   .file-icon {{ font-size: 20px; }}
   .file-info {{ flex: 1; }}
-  .filename {{ font-weight: 500; font-size: 14px; margin-bottom: 2px; }}
+  .filename {{ font-weight: 500; font-size: 14px; margin-bottom: 2px; direction: ltr; unicode-bidi: isolate; display: inline-block; text-align: left; }}
   .filepath {{ font-size: 11px; color: var(--secondary); direction: ltr; unicode-bidi: isolate; text-align: left; }}
   .badge {{
     background: rgba(16, 185, 129, 0.15);
@@ -1005,6 +1011,10 @@ impl InternalPages {
     border-radius: 4px;
     font-size: 11px;
     font-weight: 600;
+  }}
+  .badge.failed {{
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
   }}
   .empty {{ text-align: center; padding: 60px 0; color: var(--secondary); font-size: 16px; }}
 </style>
@@ -1320,8 +1330,17 @@ impl InternalPages {
       showToast('تم تبديل استخدام شريط عنوان النظام');
     }}
 
+    const browserNames = {{
+      'google-chrome': 'Google Chrome',
+      'chromium': 'Chromium',
+      'brave': 'Brave',
+      'microsoft-edge': 'Microsoft Edge',
+      'firefox': 'Firefox'
+    }};
+
     function runImport(browser) {{
-      showToast('جاري استيراد البيانات من ' + browser + '...');
+      const bName = browserNames[browser] || browser;
+      showToast('جاري استيراد البيانات من ' + bName + '...');
       sendIpc('import_data', {{ target: browser }});
     }}
 
@@ -1334,7 +1353,8 @@ impl InternalPages {
     }}
 
     window.valorexOnImportFinished = function(summary) {{
-      showToast('تم بنجاح استيراد ' + summary.bookmarks_imported + ' مفضلة و ' + summary.history_imported + ' رابط من ' + summary.browser_name);
+      const bName = browserNames[summary.browser_name] || summary.browser_name;
+      showToast('تم بنجاح استيراد ' + summary.bookmarks_imported + ' مفضلة و ' + summary.history_imported + ' رابط من ' + bName);
     }};
 
     function showToast(msg) {{
@@ -1640,8 +1660,17 @@ impl InternalPages {
       showToast('Toggled System Title Bar');
     }}
 
+    const browserNames = {{
+      'google-chrome': 'Google Chrome',
+      'chromium': 'Chromium',
+      'brave': 'Brave',
+      'microsoft-edge': 'Microsoft Edge',
+      'firefox': 'Firefox'
+    }};
+
     function runImport(browser) {{
-      showToast('Importing data from ' + browser + '...');
+      const bName = browserNames[browser] || browser;
+      showToast('Importing data from ' + bName + '...');
       sendIpc('import_data', {{ target: browser }});
     }}
 
@@ -1654,7 +1683,8 @@ impl InternalPages {
     }}
 
     window.valorexOnImportFinished = function(summary) {{
-      showToast('Successfully imported ' + summary.bookmarks_imported + ' bookmarks and ' + summary.history_imported + ' history entries from ' + summary.browser_name);
+      const bName = browserNames[summary.browser_name] || summary.browser_name;
+      showToast('Successfully imported ' + summary.bookmarks_imported + ' bookmarks and ' + summary.history_imported + ' history entries from ' + bName);
     }};
 
     function showToast(msg) {{

@@ -24,7 +24,7 @@ use tao::platform::unix::WindowExtUnix;
 #[cfg(target_os = "linux")]
 use wry::WebViewBuilderExtUnix;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct BrowserWindow {
     pub window: Window,
@@ -53,6 +53,7 @@ impl BrowserWindow {
         config: BrowserConfig,
         shield: Arc<Mutex<ShieldEngine>>,
         storage: StorageEngine,
+        initial_target_url: Option<String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let window = WindowBuilder::new()
             .with_title("Valorex")
@@ -61,7 +62,7 @@ impl BrowserWindow {
             .with_decorations(config.decorations_visible)
             .build(event_loop)?;
 
-        let initial_url = config.homepage.clone();
+        let initial_url = initial_target_url.unwrap_or_else(|| config.homepage.clone());
         info!("Launching Valorex webview with initial homepage: {}", initial_url);
         let current_language = crate::i18n::Language::from_code(&config.language);
         let shared_lang = Arc::new(Mutex::new(current_language));
@@ -247,18 +248,30 @@ impl BrowserWindow {
             let _ = proxy_title.send_event(BrowserEvent::TitleChanged(title));
         };
 
+        let secret_token = {
+            use std::io::Read;
+            let mut buf = [0u8; 16];
+            if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+                let _ = f.read_exact(&mut buf);
+            }
+            buf.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+        };
+        let secret_token = Arc::new(secret_token);
+        let token_nav = secret_token.clone();
+
         let shield_for_nav = shield.clone();
         let proxy_nav = proxy.clone();
         let active_url_nav = current_active_url.clone();
         let on_navigate = move |url: String| -> bool {
+            let trimmed = url.trim();
+            let trimmed_lower = trimmed.to_lowercase();
             let current_url = active_url_nav.lock().unwrap_or_else(|e| e.into_inner()).clone();
             let is_internal = current_url.starts_with("valorex://");
-            let trimmed_lower = url.trim().to_lowercase();
 
-            if url.starts_with("valorex-action://") {
-                let action_raw = &url["valorex-action://".len()..];
+            if trimmed.starts_with("valorex-action://") {
+                let action_raw = &trimmed["valorex-action://".len()..];
                 if let Ok(decoded) = percent_encoding::percent_decode_str(action_raw).decode_utf8() {
-                    Self::dispatch_content_ipc_str(&decoded, &proxy_nav, is_internal);
+                    Self::dispatch_content_ipc_str(&decoded, &proxy_nav, is_internal, &token_nav);
                 }
                 return false;
             }
@@ -269,8 +282,11 @@ impl BrowserWindow {
                 return false;
             }
 
+            *active_url_nav.lock().unwrap_or_else(|e| e.into_inner()) = trimmed.to_string();
+
+            let source_url = if current_url.is_empty() { trimmed } else { &current_url };
             let mut s = shield_for_nav.lock().unwrap_or_else(|e| e.into_inner());
-            if s.should_block(&url, &url, "document") {
+            if s.should_block(trimmed, source_url, "document") {
                 warn!("Valorex Shield blocked navigation to: {}", url);
                 false
             } else {
@@ -284,11 +300,23 @@ impl BrowserWindow {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("downloaded_file");
-            let mut download_dir = dirs::download_dir().unwrap_or_else(|| {
+            let download_dir = dirs::download_dir().unwrap_or_else(|| {
                 dirs::home_dir().map(|h| h.join("Downloads")).unwrap_or_else(std::env::temp_dir)
             });
-            download_dir.push(filename);
-            *path = download_dir.clone();
+            let _ = std::fs::create_dir_all(&download_dir);
+
+            let mut target_path = download_dir.join(filename);
+            if target_path.exists() {
+                let p = Path::new(filename);
+                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("download");
+                let ext = p.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
+                let mut counter = 1;
+                while target_path.exists() {
+                    target_path = download_dir.join(format!("{} ({}){}", stem, counter, ext));
+                    counter += 1;
+                }
+            }
+            *path = target_path.clone();
             let _ = proxy_dl_start.send_event(BrowserEvent::DownloadStarted(url, path.clone()));
             true
         };
@@ -301,113 +329,123 @@ impl BrowserWindow {
         let blocked_counter = shield.lock().unwrap_or_else(|e| e.into_inner()).blocked_counter();
         let storage_for_protocol = storage.clone();
         let proxy_content_ipc = proxy.clone();
-        let shortcuts_script = r#"
-            function sendContentIpc(payload) {
-                const jsonStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
-                if (window.ipc && typeof window.ipc.postMessage === 'function') {
-                    window.ipc.postMessage(jsonStr);
-                    return;
-                }
-                if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc) {
-                    window.webkit.messageHandlers.ipc.postMessage(jsonStr);
-                    return;
-                }
-                window.location.href = 'valorex-action://' + encodeURIComponent(jsonStr);
-            }
 
-            window.addEventListener('keydown', function(e) {
-                if (e.key === 'F11') {
-                    e.preventDefault();
-                    sendContentIpc({ action: 'toggle_fullscreen' });
-                } else if (e.ctrlKey && e.key === 'Tab') {
-                    e.preventDefault();
-                    if (e.shiftKey) {
-                        sendContentIpc({ action: 'prev_tab' });
-                    } else {
-                        sendContentIpc({ action: 'next_tab' });
-                    }
-                } else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
-                    e.preventDefault();
-                    sendContentIpc({ action: 'switch_tab_index', index: parseInt(e.key) - 1 });
-                } else if (e.ctrlKey && e.shiftKey && !e.altKey) {
-                    if (e.key === 't' || e.key === 'T') {
-                        e.preventDefault();
-                        sendContentIpc({ action: 'reopen_closed_tab' });
-                    } else if (e.key === 'g' || e.key === 'G') {
-                        e.preventDefault();
-                        sendContentIpc({ action: 'open_gemini' });
-                    }
-                } else if (e.ctrlKey && !e.shiftKey && !e.altKey) {
-                    if (e.key === 't' || e.key === 'T') {
-                        e.preventDefault();
-                        sendContentIpc({ action: 'new_tab' });
-                    } else if (e.key === 'w' || e.key === 'W') {
-                        e.preventDefault();
-                        sendContentIpc({ action: 'close_tab' });
-                    } else if (e.key === 'r' || e.key === 'R') {
-                        e.preventDefault();
-                        sendContentIpc({ action: 'reload' });
-                    } else if (e.key === 'h' || e.key === 'H') {
-                        e.preventDefault();
-                        sendContentIpc({ action: 'navigate', url: 'valorex://history' });
-                    } else if (e.key === 'b' || e.key === 'B') {
-                        e.preventDefault();
-                        sendContentIpc({ action: 'navigate', url: 'valorex://bookmarks' });
-                    } else if (e.key === 'j' || e.key === 'J') {
-                        e.preventDefault();
-                        sendContentIpc({ action: 'navigate', url: 'valorex://downloads' });
-                    } else if (e.key === '=' || e.key === '+') {
-                        e.preventDefault();
-                        sendContentIpc({ action: 'zoom_in' });
-                    } else if (e.key === '-' || e.key === '_') {
-                        e.preventDefault();
-                        sendContentIpc({ action: 'zoom_out' });
-                    } else if (e.key === '0') {
-                        e.preventDefault();
-                        sendContentIpc({ action: 'zoom_reset' });
-                    }
-                }
-            }, true);
+        let shortcuts_script = format!(
+            r#"
+            (function() {{
+                const __valorex_token = "{}";
+                function sendContentIpc(payload) {{
+                    if (payload && typeof payload === 'object') {{
+                        payload.token = __valorex_token;
+                    }}
+                    const jsonStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
+                    if (window.ipc && typeof window.ipc.postMessage === 'function') {{
+                        window.ipc.postMessage(jsonStr);
+                        return;
+                    }}
+                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc) {{
+                        window.webkit.messageHandlers.ipc.postMessage(jsonStr);
+                        return;
+                    }}
+                    window.location.href = 'valorex-action://' + encodeURIComponent(jsonStr);
+                }}
 
-            // Floating Smart Action Bar on text selection
-            let selectionBar = null;
-            document.addEventListener('mouseup', function(e) {
-                const sel = window.getSelection();
-                const text = sel ? sel.toString().trim() : '';
-                if (text && text.length > 0) {
-                    if (!selectionBar) {
-                        selectionBar = document.createElement('div');
-                        selectionBar.id = 'valorex-selection-bar';
-                        selectionBar.style.cssText = 'position:fixed; z-index:2147483647; background:#18191f; border:1px solid #00d2ff; border-radius:8px; padding:4px 8px; display:flex; gap:6px; box-shadow:0 8px 24px rgba(0,0,0,0.6); font-family:-apple-system,sans-serif; font-size:12px;';
-                        document.body.appendChild(selectionBar);
-                    }
-                    selectionBar.innerHTML = `
-                        <button id="valorex-sel-search" style="background:#242731; border:none; color:#f0f2f5; padding:4px 8px; border-radius:5px; cursor:pointer;">🔍 Google</button>
-                        <button id="valorex-sel-gemini" style="background:rgba(168,85,247,0.25); border:1px solid #a855f7; color:#d8b4fe; padding:4px 8px; border-radius:5px; cursor:pointer;">✨ Ask Gemini</button>
-                        <button id="valorex-sel-copy" style="background:#242731; border:none; color:#f0f2f5; padding:4px 8px; border-radius:5px; cursor:pointer;">📋 Copy</button>
-                    `;
-                    const rect = sel.getRangeAt(0).getBoundingClientRect();
-                    selectionBar.style.top = Math.max(10, rect.top - 40) + 'px';
-                    selectionBar.style.left = Math.max(10, Math.min(window.innerWidth - 220, rect.left)) + 'px';
-                    selectionBar.style.display = 'flex';
+                window.addEventListener('keydown', function(e) {{
+                    if (e.key === 'F11') {{
+                        e.preventDefault();
+                        sendContentIpc({{ action: 'toggle_fullscreen' }});
+                    }} else if (e.ctrlKey && e.key === 'Tab') {{
+                        e.preventDefault();
+                        if (e.shiftKey) {{
+                            sendContentIpc({{ action: 'prev_tab' }});
+                        }} else {{
+                            sendContentIpc({{ action: 'next_tab' }});
+                        }}
+                    }} else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {{
+                        e.preventDefault();
+                        sendContentIpc({{ action: 'switch_tab_index', index: parseInt(e.key) - 1 }});
+                    }} else if (e.ctrlKey && e.shiftKey && !e.altKey) {{
+                        if (e.key === 't' || e.key === 'T') {{
+                            e.preventDefault();
+                            sendContentIpc({{ action: 'reopen_closed_tab' }});
+                        }} else if (e.key === 'g' || e.key === 'G') {{
+                            e.preventDefault();
+                            sendContentIpc({{ action: 'open_gemini' }});
+                        }}
+                    }} else if (e.ctrlKey && !e.shiftKey && !e.altKey) {{
+                        if (e.key === 't' || e.key === 'T') {{
+                            e.preventDefault();
+                            sendContentIpc({{ action: 'new_tab' }});
+                        }} else if (e.key === 'w' || e.key === 'W') {{
+                            e.preventDefault();
+                            sendContentIpc({{ action: 'close_tab' }});
+                        }} else if (e.key === 'r' || e.key === 'R') {{
+                            e.preventDefault();
+                            sendContentIpc({{ action: 'reload' }});
+                        }} else if (e.key === 'h' || e.key === 'H') {{
+                            e.preventDefault();
+                            sendContentIpc({{ action: 'open_history' }});
+                        }} else if (e.key === 'b' || e.key === 'B') {{
+                            e.preventDefault();
+                            sendContentIpc({{ action: 'open_bookmarks' }});
+                        }} else if (e.key === 'j' || e.key === 'J') {{
+                            e.preventDefault();
+                            sendContentIpc({{ action: 'open_downloads' }});
+                        }} else if (e.key === '=' || e.key === '+') {{
+                            e.preventDefault();
+                            sendContentIpc({{ action: 'zoom_in' }});
+                        }} else if (e.key === '-' || e.key === '_') {{
+                            e.preventDefault();
+                            sendContentIpc({{ action: 'zoom_out' }});
+                        }} else if (e.key === '0') {{
+                            e.preventDefault();
+                            sendContentIpc({{ action: 'zoom_reset' }});
+                        }}
+                    }}
+                }}, true);
 
-                    document.getElementById('valorex-sel-search').onclick = () => {
-                        sendContentIpc({ action: 'navigate', url: 'https://www.google.com/search?q=' + encodeURIComponent(text) });
+                // Floating Smart Action Bar on text selection
+                let selectionBar = null;
+                document.addEventListener('mouseup', function(e) {{
+                    const sel = window.getSelection();
+                    const text = sel ? sel.toString().trim() : '';
+                    if (text && text.length > 0) {{
+                        if (!selectionBar) {{
+                            selectionBar = document.createElement('div');
+                            selectionBar.id = 'valorex-selection-bar';
+                            selectionBar.style.cssText = 'position:fixed; z-index:2147483647; background:#18191f; border:1px solid #00d2ff; border-radius:8px; padding:4px 8px; display:flex; gap:6px; box-shadow:0 8px 24px rgba(0,0,0,0.6); font-family:-apple-system,sans-serif; font-size:12px;';
+                            document.body.appendChild(selectionBar);
+                        }}
+                        selectionBar.innerHTML = `
+                            <button id="valorex-sel-search" style="background:#242731; border:none; color:#f0f2f5; padding:4px 8px; border-radius:5px; cursor:pointer;">🔍 Google</button>
+                            <button id="valorex-sel-gemini" style="background:rgba(168,85,247,0.25); border:1px solid #a855f7; color:#d8b4fe; padding:4px 8px; border-radius:5px; cursor:pointer;">✨ Ask Gemini</button>
+                            <button id="valorex-sel-copy" style="background:#242731; border:none; color:#f0f2f5; padding:4px 8px; border-radius:5px; cursor:pointer;">📋 Copy</button>
+                        `;
+                        const rect = sel.getRangeAt(0).getBoundingClientRect();
+                        selectionBar.style.top = Math.max(10, rect.top - 40) + 'px';
+                        selectionBar.style.left = Math.max(10, Math.min(window.innerWidth - 220, rect.left)) + 'px';
+                        selectionBar.style.display = 'flex';
+
+                        document.getElementById('valorex-sel-search').onclick = () => {{
+                            sendContentIpc({{ action: 'navigate', url: 'https://www.google.com/search?q=' + encodeURIComponent(text) }});
+                            selectionBar.style.display = 'none';
+                        }};
+                        document.getElementById('valorex-sel-gemini').onclick = () => {{
+                            sendContentIpc({{ action: 'navigate', url: 'https://gemini.google.com/app?q=' + encodeURIComponent(text) }});
+                            selectionBar.style.display = 'none';
+                        }};
+                        document.getElementById('valorex-sel-copy').onclick = () => {{
+                            navigator.clipboard.writeText(text);
+                            selectionBar.style.display = 'none';
+                        }};
+                    }} else if (selectionBar) {{
                         selectionBar.style.display = 'none';
-                    };
-                    document.getElementById('valorex-sel-gemini').onclick = () => {
-                        sendContentIpc({ action: 'navigate', url: 'https://gemini.google.com/app?q=' + encodeURIComponent(text) });
-                        selectionBar.style.display = 'none';
-                    };
-                    document.getElementById('valorex-sel-copy').onclick = () => {
-                        navigator.clipboard.writeText(text);
-                        selectionBar.style.display = 'none';
-                    };
-                } else if (selectionBar) {
-                    selectionBar.style.display = 'none';
-                }
-            });
-        "#;
+                    }}
+                }});
+            }})();
+            "#,
+            secret_token
+        );
 
         let mut web_context = if config.incognito {
             wry::WebContext::new(None)
@@ -423,15 +461,16 @@ impl BrowserWindow {
 
         let shared_lang_for_proto = shared_lang.clone();
         let active_url_ipc = current_active_url.clone();
+        let token_ipc = secret_token.clone();
         let content_builder = WebViewBuilder::new_with_web_context(&mut web_context)
             .with_user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
             .with_url(&initial_url)
-            .with_devtools(true)
-            .with_initialization_script(shortcuts_script)
+            .with_devtools(!config.incognito)
+            .with_initialization_script(&shortcuts_script)
             .with_ipc_handler(move |req: wry::http::Request<String>| {
                 let current_url = active_url_ipc.lock().unwrap_or_else(|e| e.into_inner()).clone();
                 let is_internal = current_url.starts_with("valorex://");
-                Self::dispatch_content_ipc_str(req.body(), &proxy_content_ipc, is_internal);
+                Self::dispatch_content_ipc_str(req.body(), &proxy_content_ipc, is_internal, &token_ipc);
             })
             .with_on_page_load_handler(on_page_load)
             .with_document_title_changed_handler(on_title)
@@ -460,7 +499,7 @@ impl BrowserWindow {
                     .header("content-type", "text/html; charset=utf-8")
                     .status(200)
                     .body(body.as_bytes().to_vec())
-                    .unwrap()
+                    .unwrap_or_else(|_| http::Response::new(Vec::new()))
                     .map(Into::into)
             });
 
@@ -521,7 +560,12 @@ impl BrowserWindow {
         Ok(instance)
     }
 
-    pub fn dispatch_content_ipc_str(msg: &str, proxy: &EventLoopProxy<BrowserEvent>, is_internal: bool) {
+    pub fn dispatch_content_ipc_str(
+        msg: &str,
+        proxy: &EventLoopProxy<BrowserEvent>,
+        is_internal: bool,
+        secret_token: &str,
+    ) {
         #[derive(serde::Deserialize)]
         struct ContentIpc {
             action: String,
@@ -529,18 +573,42 @@ impl BrowserWindow {
             target: Option<String>,
             id: Option<i64>,
             index: Option<usize>,
+            token: Option<String>,
         }
         if let Ok(payload) = serde_json::from_str::<ContentIpc>(msg) {
+            let is_authorized = is_internal || payload.token.as_deref() == Some(secret_token);
+
             match payload.action.as_str() {
                 "navigate" => {
                     if let Some(url) = payload.url {
                         let trimmed_lower = url.trim().to_lowercase();
-                        if !is_internal && (trimmed_lower.starts_with("file://") || trimmed_lower.starts_with("valorex://")) {
-                            warn!("Security: blocked privileged navigation from non-internal origin: {}", url);
+                        if !is_authorized && (trimmed_lower.starts_with("file://") || trimmed_lower.starts_with("valorex://")) {
+                            warn!("Security: blocked privileged navigation from non-authorized origin: {}", url);
                             return;
                         }
                         let _ = proxy.send_event(BrowserEvent::Navigate(url));
                     }
+                }
+                "open_history" => {
+                    if !is_authorized {
+                        warn!("Security: rejected unauthorized open_history");
+                        return;
+                    }
+                    let _ = proxy.send_event(BrowserEvent::Navigate("valorex://history".into()));
+                }
+                "open_bookmarks" => {
+                    if !is_authorized {
+                        warn!("Security: rejected unauthorized open_bookmarks");
+                        return;
+                    }
+                    let _ = proxy.send_event(BrowserEvent::Navigate("valorex://bookmarks".into()));
+                }
+                "open_downloads" => {
+                    if !is_authorized {
+                        warn!("Security: rejected unauthorized open_downloads");
+                        return;
+                    }
+                    let _ = proxy.send_event(BrowserEvent::Navigate("valorex://downloads".into()));
                 }
                 "clear_history" => {
                     if !is_internal {
@@ -559,9 +627,17 @@ impl BrowserWindow {
                     }
                 }
                 "new_tab" => {
+                    if !is_authorized {
+                        warn!("Security: rejected unauthorized new_tab from external web content");
+                        return;
+                    }
                     let _ = proxy.send_event(BrowserEvent::NewTab("valorex://newtab".into()));
                 }
                 "close_tab" => {
+                    if !is_authorized {
+                        warn!("Security: rejected unauthorized close_tab from external web content");
+                        return;
+                    }
                     if let Some(id) = payload.id {
                         let _ = proxy.send_event(BrowserEvent::CloseTab(id as usize));
                     } else {
@@ -569,27 +645,38 @@ impl BrowserWindow {
                     }
                 }
                 "reload" => {
+                    if !is_authorized {
+                        warn!("Security: rejected unauthorized reload from external web content");
+                        return;
+                    }
                     let _ = proxy.send_event(BrowserEvent::Reload);
                 }
                 "zoom_in" => {
+                    if !is_authorized { return; }
                     let _ = proxy.send_event(BrowserEvent::ZoomIn);
                 }
                 "zoom_out" => {
+                    if !is_authorized { return; }
                     let _ = proxy.send_event(BrowserEvent::ZoomOut);
                 }
                 "zoom_reset" => {
+                    if !is_authorized { return; }
                     let _ = proxy.send_event(BrowserEvent::ZoomReset);
                 }
                 "toggle_fullscreen" => {
+                    if !is_authorized { return; }
                     let _ = proxy.send_event(BrowserEvent::ToggleFullscreen);
                 }
                 "next_tab" => {
+                    if !is_authorized { return; }
                     let _ = proxy.send_event(BrowserEvent::NextTab);
                 }
                 "prev_tab" => {
+                    if !is_authorized { return; }
                     let _ = proxy.send_event(BrowserEvent::PrevTab);
                 }
                 "switch_tab_index" => {
+                    if !is_authorized { return; }
                     if let Some(idx) = payload.index {
                         let _ = proxy.send_event(BrowserEvent::SwitchTabIndex(idx));
                     }
@@ -603,9 +690,14 @@ impl BrowserWindow {
                     let _ = proxy.send_event(BrowserEvent::ImportData(target));
                 }
                 "open_gemini" => {
+                    if !is_authorized { return; }
                     let _ = proxy.send_event(BrowserEvent::OpenGemini);
                 }
                 "google_login" => {
+                    if !is_internal {
+                        warn!("Security: rejected unauthorized google_login from external web content");
+                        return;
+                    }
                     let _ = proxy.send_event(BrowserEvent::OpenGoogleLogin);
                 }
                 "toggle_window_controls" => {
@@ -630,6 +722,7 @@ impl BrowserWindow {
                     let _ = proxy.send_event(BrowserEvent::ToggleDecorations);
                 }
                 "reopen_closed_tab" => {
+                    if !is_authorized { return; }
                     let _ = proxy.send_event(BrowserEvent::ReopenClosedTab);
                 }
                 "set_language" => {
@@ -725,15 +818,22 @@ impl BrowserWindow {
                 } else {
                     id
                 };
+                let prev_active_id = self.tab_manager.active_id();
+                let was_active = target_id == prev_active_id;
                 if let Some(new_active_id) = self.tab_manager.close_tab(target_id) {
-                    if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_active_id) {
-                        *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
-                        let _ = self.content_webview.load_url(&tab.url);
+                    if was_active {
+                        if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_active_id) {
+                            *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
+                            let _ = self.content_webview.load_url(&tab.url);
+                        }
                     }
                 }
                 self.sync_toolbar_state();
             }
             BrowserEvent::SwitchTab(id) => {
+                if id == self.tab_manager.active_id() {
+                    return;
+                }
                 if self.tab_manager.switch_tab(id) {
                     if let Some(tab) = self.tab_manager.active_tab() {
                         *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
@@ -793,16 +893,17 @@ impl BrowserWindow {
                 info!("Download started for: {} -> {:?}", url, path);
             }
             BrowserEvent::DownloadCompleted(url, path_opt, success) => {
+                let filename = path_opt.as_ref()
+                    .and_then(|f| f.file_name())
+                    .and_then(|f| f.to_str())
+                    .unwrap_or("file");
+                let path_str = path_opt.as_ref()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let status = if success { "completed" } else { "failed" };
+                let _ = self.storage.record_download_with_status(filename, &url, &path_str, status);
                 if success {
-                    if let Some(path) = path_opt {
-                        let filename = path
-                            .file_name()
-                            .and_then(|f| f.to_str())
-                            .unwrap_or("file");
-                        let path_str = path.to_string_lossy().to_string();
-                        let _ = self.storage.record_download(filename, &url, &path_str);
-                        info!("Download completed successfully: {}", path_str);
-                    }
+                    info!("Download completed successfully: {}", path_str);
                 } else {
                     warn!("Download failed for URL: {}", url);
                 }
@@ -964,8 +1065,9 @@ impl BrowserWindow {
                     menu.append(&gtk::SeparatorMenuItem::new());
 
                     let item_exit = gtk::MenuItem::with_label(lang.exit_browser());
-                    item_exit.connect_activate(|_| {
-                        std::process::exit(0);
+                    let proxy_c = self.proxy.clone();
+                    item_exit.connect_activate(move |_| {
+                        let _ = proxy_c.send_event(BrowserEvent::CloseWindow);
                     });
                     menu.append(&item_exit);
 
@@ -1117,6 +1219,7 @@ impl BrowserWindow {
             BrowserEvent::DuplicateTab(id) => {
                 if let Some(new_id) = self.tab_manager.duplicate_tab(id) {
                     if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_id) {
+                        *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
                         let _ = self.content_webview.load_url(&tab.url);
                     }
                     self.sync_toolbar_state();
@@ -1127,9 +1230,13 @@ impl BrowserWindow {
                 self.sync_toolbar_state();
             }
             BrowserEvent::CloseOtherTabs(id) => {
+                let prev_active_id = self.tab_manager.active_id();
                 self.tab_manager.close_other_tabs(id);
-                if let Some(tab) = self.tab_manager.active_tab() {
-                    let _ = self.content_webview.load_url(&tab.url);
+                if prev_active_id != id {
+                    if let Some(tab) = self.tab_manager.active_tab() {
+                        *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
+                        let _ = self.content_webview.load_url(&tab.url);
+                    }
                 }
                 self.sync_toolbar_state();
             }
@@ -1140,6 +1247,7 @@ impl BrowserWindow {
             BrowserEvent::NextTab => {
                 let new_active_id = self.tab_manager.next_tab();
                 if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_active_id) {
+                    *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
                     let _ = self.content_webview.load_url(&tab.url);
                 }
                 self.sync_toolbar_state();
@@ -1147,14 +1255,19 @@ impl BrowserWindow {
             BrowserEvent::PrevTab => {
                 let new_active_id = self.tab_manager.prev_tab();
                 if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_active_id) {
+                    *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
                     let _ = self.content_webview.load_url(&tab.url);
                 }
                 self.sync_toolbar_state();
             }
             BrowserEvent::SwitchTabIndex(index) => {
+                let prev_active_id = self.tab_manager.active_id();
                 if let Some(new_active_id) = self.tab_manager.switch_to_index(index) {
-                    if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_active_id) {
-                        let _ = self.content_webview.load_url(&tab.url);
+                    if prev_active_id != new_active_id {
+                        if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_active_id) {
+                            *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
+                            let _ = self.content_webview.load_url(&tab.url);
+                        }
                     }
                     self.sync_toolbar_state();
                 }
@@ -1225,15 +1338,21 @@ impl BrowserWindow {
                 self.sync_toolbar_state();
             }
             BrowserEvent::CloseTabsToRight(id) => {
+                let prev_active_id = self.tab_manager.active_id();
                 self.tab_manager.close_tabs_to_right(id);
-                if let Some(tab) = self.tab_manager.active_tab() {
-                    let _ = self.content_webview.load_url(&tab.url);
+                let new_active_id = self.tab_manager.active_id();
+                if prev_active_id != new_active_id {
+                    if let Some(tab) = self.tab_manager.active_tab() {
+                        *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
+                        let _ = self.content_webview.load_url(&tab.url);
+                    }
                 }
                 self.sync_toolbar_state();
             }
             BrowserEvent::ReopenClosedTab => {
                 if let Some(new_id) = self.tab_manager.reopen_closed_tab() {
                     if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_id) {
+                        *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
                         let _ = self.content_webview.load_url(&tab.url);
                     }
                     self.sync_toolbar_state();
@@ -1315,6 +1434,7 @@ impl BrowserWindow {
             (s.is_enabled(), s.get_blocked_count())
         };
 
+        let is_secure = current_url.starts_with("https://") || current_url.starts_with("valorex://");
         let tabs_json = serde_json::Value::Array(self.tab_manager.get_tab_json_list());
 
         let payload = serde_json::json!({
@@ -1324,6 +1444,7 @@ impl BrowserWindow {
             "blocked_count": blocked_count,
             "shields_enabled": shield_enabled,
             "is_bookmarked": is_bookmarked,
+            "is_secure": is_secure,
             "decorations_enabled": self.decorations_enabled,
             "show_window_controls": self.show_window_controls,
             "show_tab_close_buttons": self.show_tab_close_buttons,
@@ -1345,8 +1466,44 @@ impl BrowserWindow {
         } else if trimmed.contains('.') && !trimmed.contains(' ') {
             format!("https://{}", trimmed)
         } else {
-            let query = trimmed.replace(' ', "+");
-            format!("https://www.google.com/search?q={}", query)
+            let encoded: String = percent_encoding::utf8_percent_encode(trimmed, percent_encoding::NON_ALPHANUMERIC).to_string();
+            format!("https://www.google.com/search?q={}", encoded)
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_url_schemes() {
+        assert_eq!(BrowserWindow::resolve_url("valorex://newtab"), "valorex://newtab");
+        assert_eq!(BrowserWindow::resolve_url("https://example.com"), "https://example.com");
+        assert_eq!(BrowserWindow::resolve_url("http://example.com"), "http://example.com");
+        assert_eq!(BrowserWindow::resolve_url("file:///tmp/test.html"), "file:///tmp/test.html");
+    }
+
+    #[test]
+    fn test_resolve_url_domain() {
+        assert_eq!(BrowserWindow::resolve_url("github.com"), "https://github.com");
+        assert_eq!(BrowserWindow::resolve_url("crates.io"), "https://crates.io");
+    }
+
+    #[test]
+    fn test_resolve_url_search_queries() {
+        assert_eq!(
+            BrowserWindow::resolve_url("rust programming"),
+            "https://www.google.com/search?q=rust%20programming"
+        );
+        let arabic_res = BrowserWindow::resolve_url("متصفح فالوركس");
+        assert!(arabic_res.starts_with("https://www.google.com/search?q="));
+        assert!(arabic_res.contains("%D9%85%D8%AA%D8%B5%D9%81%D8%AD"));
+
+        let symbol_res = BrowserWindow::resolve_url("c++ & rust #code");
+        // Verify # and & are percent-encoded
+        assert!(!symbol_res["https://www.google.com/search?q=".len()..].contains('&'));
+        assert!(!symbol_res["https://www.google.com/search?q=".len()..].contains('#'));
+    }
+}
+

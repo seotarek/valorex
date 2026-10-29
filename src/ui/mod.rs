@@ -55,7 +55,9 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: flex-end;
     height: 100%;
-    padding: 0 0 0 6px;
+    padding-inline-start: 6px;
+    padding-inline-end: 0;
+    padding-block: 0;
     gap: 3px;
     max-width: calc(100% - 150px);
     overflow-x: auto;
@@ -109,18 +111,18 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .tab.pinned .tab-icon {
-    margin-right: 0;
+    margin-inline-end: 0;
   }
 
   .tab.drag-over {
-    border-left: 2px solid var(--accent);
+    border-inline-start: 2px solid var(--accent);
     transform: scale(1.01);
   }
 
   .tab-icon {
     width: 16px;
     height: 16px;
-    margin-right: 8px;
+    margin-inline-end: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -147,7 +149,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-left: 6px;
+    margin-inline-start: 6px;
     color: var(--text-secondary);
     opacity: 0;
     transition: opacity 0.12s, background-color 0.12s, color 0.12s;
@@ -179,7 +181,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     color: var(--text-secondary);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
-    margin-left: 2px;
+    margin-inline-start: 2px;
     margin-bottom: 3px;
     flex-shrink: 0;
   }
@@ -201,7 +203,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: stretch;
     height: 100%;
-    margin-left: auto;
+    margin-inline-start: auto;
     flex-shrink: 0;
   }
 
@@ -332,10 +334,14 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   .address-lock {
     width: 14px;
     height: 14px;
-    margin-right: 8px;
+    margin-inline-end: 8px;
     color: #10b981;
     display: flex;
     align-items: center;
+  }
+
+  .address-lock.insecure {
+    color: #ef4444;
   }
 
   .address-input {
@@ -345,6 +351,9 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     outline: none;
     color: var(--text-primary);
     font-size: 13px;
+    direction: ltr;
+    unicode-bidi: plaintext;
+    text-align: left;
     user-select: text;
     -webkit-user-select: text;
   }
@@ -606,7 +615,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
 
       const closeEl = document.createElement('div');
       closeEl.className = 'tab-close';
-      closeEl.title = isAr ? 'إغلاق علامة التبويب (Ctrl+W)' : 'Close Tab (Ctrl+W)';
+      closeEl.title = isAr ? 'إغلاق علامة التبويب' : 'Close Tab (Ctrl+W)';
       closeEl.innerHTML = '<svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg>';
       closeEl.onclick = (e) => {
         e.stopPropagation();
@@ -731,15 +740,24 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     if (state.is_bookmarked !== undefined) {
       document.getElementById('bookmark-btn').classList.toggle('active', state.is_bookmarked);
     }
-    if (state.decorations_enabled !== undefined) {
-      const controls = document.getElementById('window-controls');
-      if (controls) controls.style.display = (state.decorations_enabled || state.show_window_controls === false) ? 'none' : 'flex';
+    if (state.is_secure !== undefined) {
+      const lockEl = document.querySelector('.address-lock');
+      if (lockEl) {
+        lockEl.classList.toggle('insecure', !state.is_secure);
+        const isAr = (state.language === 'ar') || (document.documentElement.lang === 'ar');
+        lockEl.title = state.is_secure
+          ? (isAr ? 'الاتصال آمن ومشفر' : 'Connection is secure')
+          : (isAr ? 'الاتصال غير آمن وغير مشفر' : 'Connection is not secure');
+      }
     }
-    if (state.show_window_controls !== undefined) {
+    if (state.decorations_enabled !== undefined || state.show_window_controls !== undefined) {
+      const isDecor = state.decorations_enabled !== undefined ? state.decorations_enabled : false;
+      const showControls = state.show_window_controls !== undefined ? state.show_window_controls : true;
+      const shouldShow = !isDecor && showControls;
       const controls = document.getElementById('window-controls');
-      if (controls) controls.style.display = (state.decorations_enabled || !state.show_window_controls) ? 'none' : 'flex';
+      if (controls) controls.style.display = shouldShow ? 'flex' : 'none';
       const tc = document.getElementById('tabs-container');
-      if (tc) tc.style.maxWidth = state.show_window_controls ? 'calc(100% - 150px)' : '100%';
+      if (tc) tc.style.maxWidth = shouldShow ? 'calc(100% - 150px)' : '100%';
     }
     if (state.show_tab_close_buttons !== undefined) {
       document.body.classList.toggle('hide-tab-close', !state.show_tab_close_buttons);
@@ -753,17 +771,17 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
       document.documentElement.dir = isAr ? 'rtl' : 'ltr';
       
       const newTabBtn = document.getElementById('new-tab-btn');
-      if (newTabBtn) newTabBtn.title = isAr ? 'علامة تبويب جديدة (Ctrl+T)' : 'New Tab (Ctrl+T)';
+      if (newTabBtn) newTabBtn.title = isAr ? 'علامة تبويب جديدة' : 'New Tab (Ctrl+T)';
       const winMin = document.getElementById('win-min');
       if (winMin) winMin.title = isAr ? 'تصغير النافذة' : 'Minimize';
       const winClose = document.getElementById('win-close');
       if (winClose) winClose.title = isAr ? 'إغلاق النافذة' : 'Close';
       const backBtn = document.getElementById('back-btn');
-      if (backBtn) backBtn.title = isAr ? 'الرجوع للصفحة السابقة (Alt+Left)' : 'Click to go back (Alt+Left)';
+      if (backBtn) backBtn.title = isAr ? 'الرجوع للصفحة السابقة' : 'Click to go back (Alt+Left)';
       const forwardBtn = document.getElementById('forward-btn');
-      if (forwardBtn) forwardBtn.title = isAr ? 'التقدم للصفحة التالية (Alt+Right)' : 'Click to go forward (Alt+Right)';
+      if (forwardBtn) forwardBtn.title = isAr ? 'التقدم للصفحة التالية' : 'Click to go forward (Alt+Right)';
       const reloadBtn = document.getElementById('reload-btn');
-      if (reloadBtn) reloadBtn.title = isAr ? 'إعادة تحميل الصفحة (Ctrl+R)' : 'Reload this page (Ctrl+R / F5)';
+      if (reloadBtn) reloadBtn.title = isAr ? 'إعادة تحميل الصفحة' : 'Reload this page (Ctrl+R / F5)';
       const homeBtn = document.getElementById('home-btn');
       if (homeBtn) homeBtn.title = isAr ? 'الصفحة الرئيسية' : 'Open Home Page';
       const addressInput = document.getElementById('address-input');

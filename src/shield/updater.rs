@@ -52,7 +52,8 @@ impl FilterUpdater {
             match client.get(url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     let content = resp.text().await?;
-                    if content.len() < 10_000 || (!content.starts_with("[Adblock Plus") && !content.starts_with('!')) {
+                    let trimmed = content.trim_start_matches('\u{feff}').trim_start();
+                    if trimmed.len() < 10_000 || (!trimmed.starts_with("[Adblock Plus") && !trimmed.starts_with('!')) {
                         warn!("Downloaded filter {} is invalid or truncated ({} bytes), preserving existing rules", filename, content.len());
                         continue;
                     }

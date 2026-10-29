@@ -54,10 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.shields_enabled = false;
     }
 
-    let cli_url = args.iter().skip(1).find(|a| !a.starts_with('-')).map(|u| BrowserWindow::resolve_url(u));
-    if let Some(target) = cli_url {
-        config.homepage = target;
-    }
+    let initial_target_url = args.iter().skip(1).find(|a| !a.starts_with('-')).map(|u| BrowserWindow::resolve_url(u));
 
     let shield = Arc::new(Mutex::new(ShieldEngine::new()));
     shield.lock().unwrap_or_else(|e| e.into_inner()).set_enabled(config.shields_enabled);
@@ -79,24 +76,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         StorageEngine::new()?
     };
 
-    // Spawn background worker to sync latest EasyList/EasyPrivacy filter rules
-    let proxy_updater = proxy.clone();
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build();
-        if let Ok(rt) = rt {
-            rt.block_on(async move {
-                if let Ok(updater) = FilterUpdater::new() {
-                    if let Ok(count) = updater.update_filters().await {
-                        if count > 0 {
-                            let _ = proxy_updater.send_event(BrowserEvent::RulesUpdated);
+    // Spawn background worker to sync latest EasyList/EasyPrivacy filter rules in normal mode
+    if !is_incognito {
+        let proxy_updater = proxy.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            if let Ok(rt) = rt {
+                rt.block_on(async move {
+                    if let Ok(updater) = FilterUpdater::new() {
+                        if let Ok(count) = updater.update_filters().await {
+                            if count > 0 {
+                                let _ = proxy_updater.send_event(BrowserEvent::RulesUpdated);
+                            }
                         }
                     }
-                }
-            });
-        }
-    });
+                });
+            }
+        });
+    }
 
     let mut browser_window = BrowserWindow::new(
         &event_loop,
@@ -104,6 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config,
         shield,
         storage,
+        initial_target_url,
     )?;
 
     let window_id = browser_window.window.id();

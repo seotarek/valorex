@@ -22,36 +22,36 @@ impl Default for ShieldEngine {
 }
 
 impl ShieldEngine {
+    pub const BUILT_IN_RULES: &'static [&'static str] = &[
+        // Network blocking rules
+        "||doubleclick.net^",
+        "||google-analytics.com^",
+        "||googlesyndication.com^",
+        "||adservice.google.com^",
+        "||facebook.com/tr/^$script",
+        "||connect.facebook.net/*/fbevents.js",
+        "||taboola.com^",
+        "||outbrain.com^",
+        "||scorecardresearch.com^",
+        "||quantserve.com^",
+        "||adnxs.com^",
+        "||criteo.com^",
+        "||adroll.com^",
+        "||amazon-adsystem.com^",
+        "||hotjar.com^",
+        "||yandex.ru/metrika^",
+        "||mc.yandex.ru^",
+        // Domain-specific cosmetic element hiding rules
+        "example.com##.ad-container",
+        "example.com##.sponsor-post",
+        "twitter.com##[data-testid='placementTracking']",
+        "youtube.com##.ytd-action-companion-ad-renderer",
+    ];
+
     /// Creates a new ShieldEngine populated with standard built-in privacy protection and cosmetic rules.
     pub fn new() -> Self {
-        let built_in_rules = [
-            // Network blocking rules
-            "||doubleclick.net^",
-            "||google-analytics.com^",
-            "||googlesyndication.com^",
-            "||adservice.google.com^",
-            "||facebook.com/tr/^$script",
-            "||connect.facebook.net/*/fbevents.js",
-            "||taboola.com^",
-            "||outbrain.com^",
-            "||scorecardresearch.com^",
-            "||quantserve.com^",
-            "||adnxs.com^",
-            "||criteo.com^",
-            "||adroll.com^",
-            "||amazon-adsystem.com^",
-            "||hotjar.com^",
-            "||yandex.ru/metrika^",
-            "||mc.yandex.ru^",
-            // Domain-specific cosmetic element hiding rules
-            "example.com##.ad-container",
-            "example.com##.sponsor-post",
-            "twitter.com##[data-testid='placementTracking']",
-            "youtube.com##.ytd-action-companion-ad-renderer",
-        ];
-
-        let engine = Engine::new_with_list_text(built_in_rules.join("\n"));
-        info!("Valorex Shield initialized with {} built-in privacy & cosmetic rules.", built_in_rules.len());
+        let engine = Engine::new_with_list_text(Self::BUILT_IN_RULES.join("\n"));
+        info!("Valorex Shield initialized with {} built-in privacy & cosmetic rules.", Self::BUILT_IN_RULES.len());
 
         Self {
             engine,
@@ -61,19 +61,24 @@ impl ShieldEngine {
         }
     }
 
-    /// Updates filter rules (e.g. from EasyList / EasyPrivacy)
+    /// Updates filter rules (e.g. from EasyList / EasyPrivacy) while preserving built-in rules
     pub fn load_rules<I, S>(&mut self, rules: I)
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let rules_text = rules
+        let mut combined = Self::BUILT_IN_RULES.join("\n");
+        let external = rules
             .into_iter()
             .map(|s| s.as_ref().to_string())
             .collect::<Vec<_>>()
             .join("\n");
-        self.engine = Engine::new_with_list_text(rules_text);
-        info!("Valorex Shield updated with new filter rules.");
+        if !external.is_empty() {
+            combined.push('\n');
+            combined.push_str(&external);
+        }
+        self.engine = Engine::new_with_list_text(combined);
+        info!("Valorex Shield updated with new filter rules (built-in rules preserved).");
     }
 
     /// Evaluates whether an outgoing web request should be blocked.
@@ -114,10 +119,11 @@ impl ShieldEngine {
         if !resources.hide_selectors.is_empty() {
             let selectors = resources.hide_selectors.into_iter().collect::<Vec<_>>().join(", ");
             let css_snippet = format!("{} {{ display: none !important; }}", selectors);
+            let css_json = serde_json::to_string(&css_snippet).unwrap_or_else(|_| "\"\"".to_string());
             let js_inject = format!(
                 r#"
                 (function() {{
-                    const css = `{}`;
+                    const css = {};
                     let style = document.getElementById('valorex-shield-cosmetics');
                     if (!style) {{
                         style = document.createElement('style');
@@ -127,7 +133,7 @@ impl ShieldEngine {
                     style.textContent = css;
                 }})();
                 "#,
-                css_snippet.replace('`', "\\`")
+                css_json
             );
             script_parts.push(js_inject);
         }
@@ -222,4 +228,14 @@ mod tests {
         assert!(code.contains("display: none !important"));
         assert!(code.contains("valorex-shield-cosmetics"));
     }
+
+    #[test]
+    fn test_built_in_rules_preserved_on_load() {
+        let mut shield = ShieldEngine::new();
+        shield.load_rules(["||custom-tracker.org^"]);
+        assert!(shield.should_block("https://custom-tracker.org/ping", "https://site.com", "script"));
+        // Built-in rule must still block
+        assert!(shield.should_block("https://ad.doubleclick.net/pixel", "https://site.com", "script"));
+    }
 }
+

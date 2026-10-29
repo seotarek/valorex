@@ -42,6 +42,7 @@ pub struct BrowserWindow {
     pub show_tab_close_buttons: bool,
     pub current_language: crate::i18n::Language,
     pub shared_lang: Arc<Mutex<crate::i18n::Language>>,
+    pub current_active_url: Arc<Mutex<String>>,
     pub _web_context: wry::WebContext,
 }
 
@@ -57,12 +58,14 @@ impl BrowserWindow {
             .with_title("Valorex")
             .with_inner_size(LogicalSize::new(1280.0, 800.0))
             .with_min_inner_size(LogicalSize::new(450.0, 350.0))
-            .with_decorations(false)
+            .with_decorations(config.decorations_visible)
             .build(event_loop)?;
 
         let initial_url = config.homepage.clone();
         info!("Launching Valorex webview with initial homepage: {}", initial_url);
-        let shared_lang = Arc::new(Mutex::new(crate::i18n::Language::Arabic));
+        let current_language = crate::i18n::Language::from_code(&config.language);
+        let shared_lang = Arc::new(Mutex::new(current_language));
+        let current_active_url = Arc::new(Mutex::new(initial_url.clone()));
 
         // --- Toolbar Webview Builder ---
         let proxy_ipc = proxy.clone();
@@ -231,8 +234,10 @@ impl BrowserWindow {
 
         // --- Content Webview Builder ---
         let proxy_load = proxy.clone();
+        let active_url_load = current_active_url.clone();
         let on_page_load = move |event: PageLoadEvent, url: String| {
             if let PageLoadEvent::Finished = event {
+                *active_url_load.lock().unwrap_or_else(|e| e.into_inner()) = url.clone();
                 let _ = proxy_load.send_event(BrowserEvent::PageLoaded(url));
             }
         };
@@ -244,15 +249,18 @@ impl BrowserWindow {
 
         let shield_for_nav = shield.clone();
         let proxy_nav = proxy.clone();
+        let active_url_nav = current_active_url.clone();
         let on_navigate = move |url: String| -> bool {
             if url.starts_with("valorex-action://") {
                 let action_raw = &url["valorex-action://".len()..];
                 if let Ok(decoded) = percent_encoding::percent_decode_str(action_raw).decode_utf8() {
-                    Self::dispatch_content_ipc_str(&decoded, &proxy_nav);
+                    let current_url = active_url_nav.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    let is_internal = current_url.starts_with("valorex://");
+                    Self::dispatch_content_ipc_str(&decoded, &proxy_nav, is_internal);
                 }
                 return false;
             }
-            let mut s = shield_for_nav.lock().unwrap();
+            let mut s = shield_for_nav.lock().unwrap_or_else(|e| e.into_inner());
             if s.should_block(&url, &url, "document") {
                 warn!("Valorex Shield blocked navigation to: {}", url);
                 false
@@ -267,7 +275,9 @@ impl BrowserWindow {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("downloaded_file");
-            let mut download_dir = dirs::download_dir().unwrap_or_else(|| PathBuf::from("/home/tarek/Downloads"));
+            let mut download_dir = dirs::download_dir().unwrap_or_else(|| {
+                dirs::home_dir().map(|h| h.join("Downloads")).unwrap_or_else(std::env::temp_dir)
+            });
             download_dir.push(filename);
             *path = download_dir.clone();
             let _ = proxy_dl_start.send_event(BrowserEvent::DownloadStarted(url, path.clone()));
@@ -390,20 +400,29 @@ impl BrowserWindow {
             });
         "#;
 
-        let mut session_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("/home/tarek/.config"));
-        session_dir.push("valorex");
-        session_dir.push("session");
-        let _ = std::fs::create_dir_all(&session_dir);
+        let mut web_context = if config.incognito {
+            wry::WebContext::new(None)
+        } else {
+            let mut session_dir = dirs::config_dir().unwrap_or_else(|| {
+                dirs::home_dir().map(|h| h.join(".config")).unwrap_or_else(|| std::env::temp_dir().join("valorex_config"))
+            });
+            session_dir.push("valorex");
+            session_dir.push("session");
+            let _ = std::fs::create_dir_all(&session_dir);
+            wry::WebContext::new(Some(session_dir))
+        };
 
-        let mut web_context = wry::WebContext::new(Some(session_dir));
         let shared_lang_for_proto = shared_lang.clone();
+        let active_url_ipc = current_active_url.clone();
         let content_builder = WebViewBuilder::new_with_web_context(&mut web_context)
             .with_user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
             .with_url(&initial_url)
             .with_devtools(true)
             .with_initialization_script(shortcuts_script)
             .with_ipc_handler(move |req: wry::http::Request<String>| {
-                Self::dispatch_content_ipc_str(req.body(), &proxy_content_ipc);
+                let current_url = active_url_ipc.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let is_internal = current_url.starts_with("valorex://");
+                Self::dispatch_content_ipc_str(req.body(), &proxy_content_ipc, is_internal);
             })
             .with_on_page_load_handler(on_page_load)
             .with_document_title_changed_handler(on_title)
@@ -413,7 +432,7 @@ impl BrowserWindow {
             .with_custom_protocol("valorex".into(), move |_id, req| {
                 use std::sync::atomic::Ordering;
                 let uri = req.uri().to_string();
-                let current_lang = *shared_lang_for_proto.lock().unwrap();
+                let current_lang = *shared_lang_for_proto.lock().unwrap_or_else(|e| e.into_inner());
                 let body = if uri.contains("newtab") {
                     InternalPages::render_newtab(blocked_counter.load(Ordering::Relaxed), current_lang)
                 } else if uri.contains("history") {
@@ -476,14 +495,15 @@ impl BrowserWindow {
             tab_manager,
             shield,
             storage,
+            decorations_enabled: config.decorations_visible,
+            show_window_controls: config.window_controls_visible,
+            show_tab_close_buttons: config.tab_close_visible,
             config,
             zoom_level: 1.0,
             is_fullscreen: false,
-            decorations_enabled: false,
-            show_window_controls: true,
-            show_tab_close_buttons: true,
-            current_language: crate::i18n::Language::Arabic,
+            current_language,
             shared_lang,
+            current_active_url,
             _web_context: web_context,
         };
 
@@ -492,7 +512,7 @@ impl BrowserWindow {
         Ok(instance)
     }
 
-    pub fn dispatch_content_ipc_str(msg: &str, proxy: &EventLoopProxy<BrowserEvent>) {
+    pub fn dispatch_content_ipc_str(msg: &str, proxy: &EventLoopProxy<BrowserEvent>, is_internal: bool) {
         #[derive(serde::Deserialize)]
         struct ContentIpc {
             action: String,
@@ -505,13 +525,25 @@ impl BrowserWindow {
             match payload.action.as_str() {
                 "navigate" => {
                     if let Some(url) = payload.url {
+                        if !is_internal && url.starts_with("file://") {
+                            warn!("Security: blocked file:// navigation from non-internal origin");
+                            return;
+                        }
                         let _ = proxy.send_event(BrowserEvent::Navigate(url));
                     }
                 }
                 "clear_history" => {
+                    if !is_internal {
+                        warn!("Security: rejected unauthorized clear_history from external web content");
+                        return;
+                    }
                     let _ = proxy.send_event(BrowserEvent::ClearHistory);
                 }
                 "delete_bookmark" => {
+                    if !is_internal {
+                        warn!("Security: rejected unauthorized delete_bookmark from external web content");
+                        return;
+                    }
                     if let Some(id) = payload.id {
                         let _ = proxy.send_event(BrowserEvent::DeleteBookmark(id));
                     }
@@ -553,6 +585,10 @@ impl BrowserWindow {
                     }
                 }
                 "import_data" => {
+                    if !is_internal {
+                        warn!("Security: rejected unauthorized import_data from external web content");
+                        return;
+                    }
                     let target = payload.target.unwrap_or_else(|| "google-chrome".to_string());
                     let _ = proxy.send_event(BrowserEvent::ImportData(target));
                 }
@@ -563,29 +599,48 @@ impl BrowserWindow {
                     let _ = proxy.send_event(BrowserEvent::OpenGoogleLogin);
                 }
                 "toggle_window_controls" => {
+                    if !is_internal {
+                        warn!("Security: rejected toggle_window_controls from external web content");
+                        return;
+                    }
                     let _ = proxy.send_event(BrowserEvent::ToggleWindowControls);
                 }
                 "toggle_tab_close" => {
+                    if !is_internal {
+                        warn!("Security: rejected toggle_tab_close from external web content");
+                        return;
+                    }
                     let _ = proxy.send_event(BrowserEvent::ToggleTabCloseButtons);
                 }
                 "toggle_decorations" => {
+                    if !is_internal {
+                        warn!("Security: rejected toggle_decorations from external web content");
+                        return;
+                    }
                     let _ = proxy.send_event(BrowserEvent::ToggleDecorations);
                 }
                 "reopen_closed_tab" => {
                     let _ = proxy.send_event(BrowserEvent::ReopenClosedTab);
                 }
                 "set_language" => {
+                    if !is_internal {
+                        warn!("Security: rejected set_language from external web content");
+                        return;
+                    }
                     if let Some(target) = payload.target {
                         let _ = proxy.send_event(BrowserEvent::SetLanguage(target));
                     }
                 }
                 "minimize_window" => {
+                    if !is_internal { return; }
                     let _ = proxy.send_event(BrowserEvent::MinimizeWindow);
                 }
                 "maximize_window" => {
+                    if !is_internal { return; }
                     let _ = proxy.send_event(BrowserEvent::MaximizeWindow);
                 }
                 "close_window" => {
+                    if !is_internal { return; }
                     let _ = proxy.send_event(BrowserEvent::CloseWindow);
                 }
                 _ => {}
@@ -598,6 +653,7 @@ impl BrowserWindow {
             BrowserEvent::Navigate(raw_url) => {
                 let resolved = Self::resolve_url(&raw_url);
                 info!("Navigating to: {}", resolved);
+                *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = resolved.clone();
                 if let Err(e) = self.content_webview.load_url(&resolved) {
                     warn!("Failed to load URL {}: {}", resolved, e);
                 }
@@ -608,15 +664,18 @@ impl BrowserWindow {
             }
             BrowserEvent::PageLoaded(url) => {
                 info!("Page loaded: {}", url);
+                *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = url.clone();
                 if let Some(tab) = self.tab_manager.active_tab_mut() {
                     tab.url = url.clone();
                     tab.can_go_back = self.content_webview.can_go_back().unwrap_or(false);
                     tab.can_go_forward = self.content_webview.can_go_forward().unwrap_or(false);
+                    // Record in history once when page load finishes
+                    let _ = self.storage.record_history(&url, &tab.title);
                 }
 
                 // Inject cosmetic ad blocking CSS if available
                 let cosmetic_script = {
-                    let s = self.shield.lock().unwrap();
+                    let s = self.shield.lock().unwrap_or_else(|e| e.into_inner());
                     s.generate_cosmetic_script(&url)
                 };
                 if let Some(script) = cosmetic_script {
@@ -629,7 +688,7 @@ impl BrowserWindow {
                 if let Some(tab) = self.tab_manager.active_tab_mut() {
                     tab.title = title.clone();
                     let url = tab.url.clone();
-                    let _ = self.storage.record_history(&url, &title);
+                    let _ = self.storage.update_history_title(&url, &title);
                 }
                 let _ = self.window.set_title(&format!("{} - Valorex", title));
                 self.sync_toolbar_state();
@@ -646,12 +705,19 @@ impl BrowserWindow {
             BrowserEvent::NewTab(url) => {
                 let resolved = Self::resolve_url(&url);
                 let _id = self.tab_manager.new_tab(&resolved);
+                *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = resolved.clone();
                 let _ = self.content_webview.load_url(&resolved);
                 self.sync_toolbar_state();
             }
             BrowserEvent::CloseTab(id) => {
-                if let Some(new_active_id) = self.tab_manager.close_tab(id) {
+                let target_id = if id == 0 {
+                    self.tab_manager.active_id()
+                } else {
+                    id
+                };
+                if let Some(new_active_id) = self.tab_manager.close_tab(target_id) {
                     if let Some(tab) = self.tab_manager.tabs().iter().find(|t| t.id == new_active_id) {
+                        *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
                         let _ = self.content_webview.load_url(&tab.url);
                     }
                 }
@@ -660,13 +726,14 @@ impl BrowserWindow {
             BrowserEvent::SwitchTab(id) => {
                 if self.tab_manager.switch_tab(id) {
                     if let Some(tab) = self.tab_manager.active_tab() {
+                        *self.current_active_url.lock().unwrap_or_else(|e| e.into_inner()) = tab.url.clone();
                         let _ = self.content_webview.load_url(&tab.url);
                     }
                 }
                 self.sync_toolbar_state();
             }
             BrowserEvent::ToggleShield(enabled_opt) => {
-                let mut s = self.shield.lock().unwrap();
+                let mut s = self.shield.lock().unwrap_or_else(|e| e.into_inner());
                 let new_state = enabled_opt.unwrap_or(!s.is_enabled());
                 s.set_enabled(new_state);
                 info!("Valorex Shields toggled to: {}", new_state);
@@ -679,12 +746,7 @@ impl BrowserWindow {
                     let title = tab.title.clone();
                     if let Ok(is_bookmarked) = self.storage.is_bookmarked(&url) {
                         if is_bookmarked {
-                            // Find and delete
-                            if let Ok(bookmarks) = self.storage.get_bookmarks() {
-                                if let Some(found) = bookmarks.iter().find(|b| b.url == url) {
-                                    let _ = self.storage.delete_bookmark(found.id);
-                                }
-                            }
+                            let _ = self.storage.delete_bookmark_by_url(&url);
                         } else {
                             let _ = self.storage.add_bookmark(&title, &url, None);
                         }
@@ -696,6 +758,7 @@ impl BrowserWindow {
                 let _ = self.storage.clear_history();
                 let _ = self.content_webview.clear_all_browsing_data();
                 info!("Cleared browsing data and history.");
+                self.sync_toolbar_state();
             }
             BrowserEvent::DeleteBookmark(id) => {
                 let _ = self.storage.delete_bookmark(id);
@@ -738,7 +801,7 @@ impl BrowserWindow {
                 if let Ok(updater) = crate::shield::updater::FilterUpdater::new() {
                     if let Ok(local_rules) = updater.load_local_rules() {
                         if !local_rules.is_empty() {
-                            self.shield.lock().unwrap().load_rules(local_rules.lines());
+                            self.shield.lock().unwrap_or_else(|e| e.into_inner()).load_rules(local_rules.lines());
                             info!("Shield engine updated with fresh EasyList/EasyPrivacy rules.");
                         }
                     }
@@ -746,6 +809,8 @@ impl BrowserWindow {
             }
             BrowserEvent::ToggleDecorations => {
                 self.decorations_enabled = !self.decorations_enabled;
+                self.config.decorations_visible = self.decorations_enabled;
+                let _ = self.config.save();
                 self.window.set_decorations(self.decorations_enabled);
                 info!("Window decorations toggled to: {}", self.decorations_enabled);
                 self.sync_toolbar_state();
@@ -759,6 +824,7 @@ impl BrowserWindow {
                 self.sync_toolbar_state();
             }
             BrowserEvent::CloseWindow => {
+                let _ = self.config.save();
                 std::process::exit(0);
             }
             BrowserEvent::DragWindow => {
@@ -1099,7 +1165,9 @@ impl BrowserWindow {
             }
             BrowserEvent::SetLanguage(lang_code) => {
                 self.current_language = crate::i18n::Language::from_code(&lang_code);
-                *self.shared_lang.lock().unwrap() = self.current_language;
+                *self.shared_lang.lock().unwrap_or_else(|e| e.into_inner()) = self.current_language;
+                self.config.language = self.current_language.code().to_string();
+                let _ = self.config.save();
                 info!("Language changed to: {:?}", self.current_language);
                 if let Some(tab) = self.tab_manager.active_tab() {
                     if tab.url.starts_with("valorex://") {
@@ -1124,11 +1192,15 @@ impl BrowserWindow {
             }
             BrowserEvent::ToggleWindowControls => {
                 self.show_window_controls = !self.show_window_controls;
+                self.config.window_controls_visible = self.show_window_controls;
+                let _ = self.config.save();
                 info!("Toggled window caption controls to: {}", self.show_window_controls);
                 self.sync_toolbar_state();
             }
             BrowserEvent::ToggleTabCloseButtons => {
                 self.show_tab_close_buttons = !self.show_tab_close_buttons;
+                self.config.tab_close_visible = self.show_tab_close_buttons;
+                let _ = self.config.save();
                 info!("Toggled tab close buttons to: {}", self.show_tab_close_buttons);
                 self.sync_toolbar_state();
             }

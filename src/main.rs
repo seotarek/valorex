@@ -1,3 +1,4 @@
+use log::info;
 use std::env;
 use std::sync::{Arc, Mutex};
 use tao::{
@@ -42,10 +43,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::<BrowserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
 
-    let mut config = BrowserConfig::default();
-    if args.iter().any(|a| a == "-i" || a == "--incognito") {
+    let mut config = BrowserConfig::load();
+    let is_incognito = args.iter().any(|a| a == "-i" || a == "--incognito");
+    if is_incognito {
+        config.incognito = true;
         config.shields_enabled = true;
-        config.homepage = "valorex://newtab".to_string();
     }
 
     if args.iter().any(|a| a == "--disable-shields") {
@@ -60,7 +62,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let shield = Arc::new(Mutex::new(ShieldEngine::new()));
-    let storage = StorageEngine::new()?;
+    let storage = if is_incognito {
+        info!("Incognito mode active: using ephemeral in-memory storage.");
+        StorageEngine::new_in_memory()?
+    } else {
+        StorageEngine::new()?
+    };
 
     // Spawn background worker to sync latest EasyList/EasyPrivacy filter rules
     let proxy_updater = proxy.clone();

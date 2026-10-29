@@ -1,6 +1,21 @@
 use crate::i18n::Language;
 use crate::storage::StorageEngine;
 
+pub fn escape_html(input: &str) -> String {
+    let mut escaped = String::with_capacity(input.len());
+    for c in input.chars() {
+        match c {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(c),
+        }
+    }
+    escaped
+}
+
 pub struct InternalPages;
 
 impl InternalPages {
@@ -618,13 +633,16 @@ impl InternalPages {
         let mut list_html = String::new();
         for item in entries {
             let display_time = item.visit_time.split('T').next().unwrap_or(&item.visit_time);
+            let safe_time = escape_html(display_time);
+            let safe_url = escape_html(&item.url);
+            let safe_title = escape_html(&item.title);
             list_html.push_str(&format!(
                 r#"<div class="history-item">
                     <span class="history-time">{}</span>
                     <a href="{}" class="history-title">{}</a>
                     <span class="history-url">{}</span>
                 </div>"#,
-                display_time, item.url, item.title, item.url
+                safe_time, safe_url, safe_title, safe_url
             ));
         }
 
@@ -775,6 +793,8 @@ impl InternalPages {
 
         let mut list_html = String::new();
         for item in entries {
+            let safe_url = escape_html(&item.url);
+            let safe_title = escape_html(&item.title);
             list_html.push_str(&format!(
                 r#"<div class="bookmark-item">
                     <span class="bookmark-icon">⭐</span>
@@ -782,7 +802,7 @@ impl InternalPages {
                     <span class="bookmark-url">{}</span>
                     <button class="del-btn" onclick="deleteBookmark({})">{}</button>
                 </div>"#,
-                item.url, item.title, item.url, item.id, remove_label
+                safe_url, safe_title, safe_url, item.id, remove_label
             ));
         }
 
@@ -902,6 +922,8 @@ impl InternalPages {
 
         let mut list_html = String::new();
         for item in entries {
+            let safe_filename = escape_html(&item.filename);
+            let safe_path = escape_html(&item.path);
             list_html.push_str(&format!(
                 r#"<div class="download-item">
                     <span class="file-icon">📥</span>
@@ -911,7 +933,7 @@ impl InternalPages {
                     </div>
                     <span class="badge">{}</span>
                 </div>"#,
-                item.filename, item.path, completed_badge
+                safe_filename, safe_path, completed_badge
             ));
         }
 
@@ -1632,3 +1654,15 @@ impl InternalPages {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_html() {
+        assert_eq!(escape_html("<script>alert('xss')</script>"), "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;");
+        assert_eq!(escape_html("Hello & \"World\""), "Hello &amp; &quot;World&quot;");
+    }
+}
+

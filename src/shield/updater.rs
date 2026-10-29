@@ -53,7 +53,9 @@ impl FilterUpdater {
                 Ok(resp) if resp.status().is_success() => {
                     let content = resp.text().await?;
                     let target_path = self.rules_dir.join(filename);
-                    fs::write(&target_path, content)?;
+                    let tmp_path = self.rules_dir.join(format!("{}.tmp", filename));
+                    fs::write(&tmp_path, &content)?;
+                    fs::rename(&tmp_path, &target_path)?;
                     info!("Successfully updated {}", filename);
                     updated += 1;
                 }

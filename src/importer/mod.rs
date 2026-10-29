@@ -222,9 +222,9 @@ impl BrowserImporter {
         storage: &StorageEngine,
         limit: usize,
     ) -> Result<usize, Box<dyn std::error::Error>> {
-        // Copy to temp directory to avoid database locking if Chrome is running
-        let temp_dir = std::env::temp_dir();
-        let temp_hist = temp_dir.join(format!("valorex_import_hist_{}.db", std::process::id()));
+        // Copy to secure RAII temporary file to avoid database locking if Chrome is running
+        let temp_file = tempfile::NamedTempFile::new()?;
+        let temp_hist = temp_file.path().to_path_buf();
 
         fs::copy(history_file, &temp_hist)?;
 
@@ -256,7 +256,6 @@ impl BrowserImporter {
             imported
         };
 
-        let _ = fs::remove_file(&temp_hist);
         Ok(count)
     }
 
@@ -275,8 +274,8 @@ impl BrowserImporter {
         places_file: &Path,
         storage: &StorageEngine,
     ) -> Result<(usize, usize), Box<dyn std::error::Error>> {
-        let temp_dir = std::env::temp_dir();
-        let temp_places = temp_dir.join(format!("valorex_import_places_{}.db", std::process::id()));
+        let temp_file = tempfile::NamedTempFile::new()?;
+        let temp_places = temp_file.path().to_path_buf();
 
         fs::copy(places_file, &temp_places)?;
 
@@ -337,7 +336,6 @@ impl BrowserImporter {
             (bms, hist)
         };
 
-        let _ = fs::remove_file(&temp_places);
         Ok((bm_count, hist_count))
     }
 }

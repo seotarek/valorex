@@ -150,6 +150,9 @@ impl TabManager {
         let to_pos = self.tabs.iter().position(|t| t.id == to_id);
 
         if let (Some(fp), Some(tp)) = (from_pos, to_pos) {
+            if self.tabs[fp].is_pinned != self.tabs[tp].is_pinned {
+                return;
+            }
             let tab = self.tabs.remove(fp);
             self.tabs.insert(tp, tab);
         }
@@ -192,8 +195,14 @@ impl TabManager {
         if self.tabs.len() <= 1 {
             // Keep at least one tab open
             if let Some(tab) = self.tabs.first_mut() {
+                if tab.id != id {
+                    return None;
+                }
                 if tab.url != "valorex://newtab" {
                     self.closed_tabs.push(tab.url.clone());
+                    if self.closed_tabs.len() > 50 {
+                        self.closed_tabs.remove(0);
+                    }
                 }
                 tab.title = "New Tab".to_string();
                 tab.url = "valorex://newtab".to_string();
@@ -207,6 +216,9 @@ impl TabManager {
             let removed = self.tabs.remove(pos);
             if removed.url != "valorex://newtab" {
                 self.closed_tabs.push(removed.url);
+                if self.closed_tabs.len() > 50 {
+                    self.closed_tabs.remove(0);
+                }
             }
             if self.active_id == id {
                 let new_active_index = if pos >= self.tabs.len() {

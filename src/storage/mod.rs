@@ -72,6 +72,11 @@ impl StorageEngine {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         conn.execute_batch(
             "
+            PRAGMA journal_mode = WAL;
+            PRAGMA busy_timeout = 5000;
+            PRAGMA synchronous = NORMAL;
+            PRAGMA foreign_keys = ON;
+
             CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 url TEXT NOT NULL UNIQUE,
@@ -142,10 +147,22 @@ impl StorageEngine {
             VALUES (?1, ?2, ?3, ?4)
             ON CONFLICT(url) DO UPDATE SET
                 title = CASE WHEN length(?2) > 0 THEN ?2 ELSE history.title END,
-                visit_time = ?3,
+                visit_time = MAX(history.visit_time, ?3),
                 visit_count = MAX(history.visit_count, ?4)
             ",
             params![url, title, visit_time, visit_count],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_history_title(&self, url: &str, title: &str) -> Result<(), Box<dyn std::error::Error>> {
+        if url.trim().is_empty() || title.trim().is_empty() || url.starts_with("valorex://") {
+            return Ok(());
+        }
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE history SET title = ?1 WHERE url = ?2",
+            params![title, url],
         )?;
         Ok(())
     }
@@ -246,6 +263,12 @@ impl StorageEngine {
         Ok(())
     }
 
+    pub fn delete_bookmark_by_url(&self, url: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let affected = conn.execute("DELETE FROM bookmarks WHERE url = ?1", params![url])?;
+        Ok(affected > 0)
+    }
+
     pub fn is_bookmarked(&self, url: &str) -> Result<bool, Box<dyn std::error::Error>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare("SELECT COUNT(*) FROM bookmarks WHERE url = ?1")?;
@@ -254,9 +277,10 @@ impl StorageEngine {
     }
 
     pub fn get_site_shield(&self, domain: &str) -> Result<Option<bool>, Box<dyn std::error::Error>> {
+        let norm_domain = domain.trim().to_lowercase();
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare("SELECT shields_enabled FROM site_shields WHERE domain = ?1")?;
-        let mut rows = stmt.query(params![domain])?;
+        let mut rows = stmt.query(params![norm_domain])?;
         if let Some(row) = rows.next()? {
             let val: i64 = row.get(0)?;
             Ok(Some(val != 0))
@@ -266,6 +290,7 @@ impl StorageEngine {
     }
 
     pub fn set_site_shield(&self, domain: &str, enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
+        let norm_domain = domain.trim().to_lowercase();
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         conn.execute(
             "
@@ -273,7 +298,7 @@ impl StorageEngine {
             VALUES (?1, ?2, 0)
             ON CONFLICT(domain) DO UPDATE SET shields_enabled = ?2
             ",
-            params![domain, if enabled { 1 } else { 0 }],
+            params![norm_domain, if enabled { 1 } else { 0 }],
         )?;
         Ok(())
     }
@@ -387,4 +412,21 @@ mod tests {
         storage.clear_downloads().unwrap();
         assert!(storage.get_downloads().unwrap().is_empty());
     }
+
+    #[test]
+    fn test_delete_bookmark_by_url_and_update_title() {
+        let storage = StorageEngine::new_in_memory().unwrap();
+        storage.add_bookmark("Google", "https://google.com", None).unwrap();
+        assert!(storage.is_bookmarked("https://google.com").unwrap());
+
+        let deleted = storage.delete_bookmark_by_url("https://google.com").unwrap();
+        assert!(deleted);
+        assert!(!storage.is_bookmarked("https://google.com").unwrap());
+
+        storage.record_history("https://news.com", "Old Title").unwrap();
+        storage.update_history_title("https://news.com", "New Updated Title").unwrap();
+        let history = storage.get_recent_history(10).unwrap();
+        assert_eq!(history[0].title, "New Updated Title");
+    }
 }
+

@@ -13,7 +13,7 @@
   <a href="https://seotarek.github.io/valorex/"><img alt="Website" src="https://img.shields.io/badge/website-GitHub%20Pages-00d2ff?logo=githubpages&logoColor=white"></a>
   <a href="https://github.com/seotarek/valorex/releases"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0-00d2ff?logo=github&logoColor=white"></a>
   <a href="https://github.com/seotarek/valorex/actions/workflows/rust.yml"><img alt="Rust CI" src="https://github.com/seotarek/valorex/actions/workflows/rust.yml/badge.svg"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-43%20passing-10b981">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-44%20passing-10b981">
   <img alt="Built with Rust 2021" src="https://img.shields.io/badge/built%20with-Rust%202021-f97316?logo=rust&logoColor=white">
   <img alt="Engine" src="https://img.shields.io/badge/engine-WebKitGTK%20%2B%20Tao-6366f1">
   <img alt="Adblock" src="https://img.shields.io/badge/adblock-Brave%20Engine-fb542b?logo=brave&logoColor=white">
@@ -95,8 +95,22 @@ valorex/
 │   │   └── updater.rs    # Automated EasyList/EasyPrivacy background updater
 │   ├── storage/          # SQLite WAL storage engine (History, Bookmarks, Downloads)
 │   └── ui/               # Modern Chrome-like CSD titlebar, Omnibox & Tab bar
-└── tests/                # Automated unit & integration test suites (34 tests)
+└── src/tests             # Automated unit test suite (44 passing tests)
 ```
+
+---
+
+## 🖥️ Platform Support & Roadmap (المنصات المدعومة وخريطة الطريق)
+
+| Platform (نظام التشغيل) | Backend Engine (المحرك) | Status (الحالة) | Details (التفاصيل) |
+| :--- | :--- | :--- | :--- |
+| **Linux (x86_64)** | **WebKitGTK 4.1 + GTK3** | **Supported (مدعوم رسمياً)** | Official Tier-1 target, full CSD, native dual-layer webview, tested on Fedora/Ubuntu/Arch. |
+| **Windows (x86_64)** | *WebView2 / Win32* | *Roadmap (قيد التطوير)* | Requires platform abstraction layer for window packing; not yet built or verified. |
+| **macOS (Apple / Intel)**| *WKWebView / Cocoa* | *Roadmap (قيد التطوير)* | Requires Cocoa window hierarchy integration; not yet built or verified. |
+
+> **ملاحظة الشفافية الهندسية (Platform Reality Note):** لغة Rust لغة قابلة للتشغيل على منصات متعددة، لكن Valorex يرتبط حالياً بمكتبات C الخاصة بواجهة لينكس (`libgtk-3`, `libwebkit2gtk-4.1`). لن يتم توفير حزم تثبيت رسمية أو ادعاء دعم لنظامي Windows أو macOS حتى يتم بناء واختبار بيئات WebView2 و WKWebView الأصلية والتأكد من استقرارها عبر CI مخصص.
+
+> **حدود الاختبارات التلقائية (Testing & Security Scope):** يشتمل المشروع على 44 اختبار وحدة (Unit Tests) تغطي منطق استخلاص الروابط، محرك SQLite، خوارزميات التوجيه، وحجم فلاتر الحجب، وعزل الـ IPC. هذه الاختبارات لا تشكل إثباتاً مطلقاً لخلو محرك المتصفح متعدد العمليات من الثغرات، وتخضع الشيفرة لمبادئ الدفاع في العمق (Defense-in-Depth)، وعزل الرموز المؤقتة (Session Nonces)، وسياسات أمان المحتوى الصارمة (CSP: `frame-ancestors 'none'`).
 
 ---
 
@@ -128,7 +142,7 @@ sudo pacman -S --needed base-devel rust webkit2gtk-4.1
 git clone https://github.com/seotarek/valorex.git
 cd valorex
 
-# 2. Run automated test suite (34 unit tests)
+# 2. Run automated test suite (44 unit tests)
 cargo test
 
 # 3. Build optimized release binary

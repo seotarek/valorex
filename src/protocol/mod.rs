@@ -28,7 +28,7 @@ pub fn sanitize_href(url: &str) -> String {
 pub struct InternalPages;
 
 impl InternalPages {
-    pub fn render_newtab(blocked_total: u64, lang: Language) -> String {
+    pub fn render_newtab(blocked_total: u64, lang: Language, token: &str) -> String {
         let bw_saved = ((blocked_total as f64) * 0.08).round() as u64;
         let time_saved = ((blocked_total as f64) * 0.04).round() as u64;
 
@@ -542,7 +542,7 @@ impl InternalPages {
   <script>
     // Bulletproof Multi-Layer IPC Bridge
     function sendIpc(action, data) {{
-      const payload = JSON.stringify({{ action: action, ...(data || {{}}) }});
+      const payload = JSON.stringify({{ action: action, token: "{token}", ...(data || {{}}) }});
       if (window.ipc && typeof window.ipc.postMessage === 'function') {{
         window.ipc.postMessage(payload);
         return;
@@ -644,7 +644,7 @@ impl InternalPages {
         )
     }
 
-    pub fn render_history(storage: &StorageEngine, lang: Language) -> String {
+    pub fn render_history(storage: &StorageEngine, lang: Language, token: &str) -> String {
         let entries = storage.get_recent_history(500).unwrap_or_default();
         let is_ar = lang.is_rtl();
         let dir = lang.direction();
@@ -784,7 +784,7 @@ impl InternalPages {
   </div>
   <script>
     function sendIpc(action, data) {{
-      const payload = JSON.stringify({{ action: action, ...(data || {{}}) }});
+      const payload = JSON.stringify({{ action: action, token: "{token}", ...(data || {{}}) }});
       if (window.ipc && typeof window.ipc.postMessage === 'function') {{
         window.ipc.postMessage(payload);
         return;
@@ -809,7 +809,7 @@ impl InternalPages {
         )
     }
 
-    pub fn render_bookmarks(storage: &StorageEngine, lang: Language) -> String {
+    pub fn render_bookmarks(storage: &StorageEngine, lang: Language, token: &str) -> String {
         let entries = storage.get_bookmarks().unwrap_or_default();
         let is_ar = lang.is_rtl();
         let dir = lang.direction();
@@ -919,7 +919,7 @@ impl InternalPages {
   </div>
   <script>
     function sendIpc(action, data) {{
-      const payload = JSON.stringify({{ action: action, ...(data || {{}}) }});
+      const payload = JSON.stringify({{ action: action, token: "{token}", ...(data || {{}}) }});
       if (window.ipc && typeof window.ipc.postMessage === 'function') {{
         window.ipc.postMessage(payload);
         return;
@@ -942,7 +942,7 @@ impl InternalPages {
         )
     }
 
-    pub fn render_downloads(storage: &StorageEngine, lang: Language) -> String {
+    pub fn render_downloads(storage: &StorageEngine, lang: Language, _token: &str) -> String {
         let entries = storage.get_downloads().unwrap_or_default();
         let is_ar = lang.is_rtl();
         let dir = lang.direction();
@@ -1047,7 +1047,7 @@ impl InternalPages {
         )
     }
 
-    pub fn render_settings(lang: Language) -> String {
+    pub fn render_settings(lang: Language, token: &str) -> String {
         let is_ar = lang.is_rtl();
         let dir = lang.direction();
         let lang_code = lang.code();
@@ -1315,7 +1315,7 @@ impl InternalPages {
 
   <script>
     function sendIpc(action, data) {{
-      const payload = JSON.stringify({{ action: action, ...(data || {{}}) }});
+      const payload = JSON.stringify({{ action: action, token: "{token}", ...(data || {{}}) }});
       if (window.ipc && typeof window.ipc.postMessage === 'function') {{
         window.ipc.postMessage(payload);
         return;
@@ -1645,7 +1645,7 @@ impl InternalPages {
 
   <script>
     function sendIpc(action, data) {{
-      const payload = JSON.stringify({{ action: action, ...(data || {{}}) }});
+      const payload = JSON.stringify({{ action: action, token: "{token}", ...(data || {{}}) }});
       if (window.ipc && typeof window.ipc.postMessage === 'function') {{
         window.ipc.postMessage(payload);
         return;
@@ -1741,30 +1741,36 @@ mod tests {
 
     #[test]
     fn test_render_settings_contains_accurate_descriptions() {
-        let ar_html = InternalPages::render_settings(Language::Arabic);
+        let test_token = "secret_nonce_abc123";
+        let ar_html = InternalPages::render_settings(Language::Arabic, test_token);
         assert!(ar_html.contains("خدمات الويب ومساعد Gemini"));
         assert!(ar_html.contains("الوصول السريع إلى Google Gemini"));
         assert!(ar_html.contains("إدارة الجلسات وملفات تعريف الارتباط"));
         assert!(ar_html.contains("dir=\"rtl\""));
+        assert!(ar_html.contains(test_token));
 
-        let en_html = InternalPages::render_settings(Language::English);
+        let en_html = InternalPages::render_settings(Language::English, test_token);
         assert!(en_html.contains("Web Services &amp; Gemini Assistant") || en_html.contains("Web Services & Gemini Assistant"));
         assert!(en_html.contains("Google Gemini Quick Access"));
         assert!(en_html.contains("Cookie &amp; Session Storage") || en_html.contains("Cookie & Session Storage"));
         assert!(en_html.contains("dir=\"ltr\""));
+        assert!(en_html.contains(test_token));
     }
 
     #[test]
     fn test_render_newtab_bidi() {
-        let ar_newtab = InternalPages::render_newtab(500, Language::Arabic);
+        let test_token = "newtab_token_xyz987";
+        let ar_newtab = InternalPages::render_newtab(500, Language::Arabic, test_token);
         assert!(ar_newtab.contains("dir=\"rtl\""));
         assert!(ar_newtab.contains("lang=\"ar\""));
         assert!(ar_newtab.contains("أهلاً بك في Valorex"));
+        assert!(ar_newtab.contains(test_token));
 
-        let en_newtab = InternalPages::render_newtab(500, Language::English);
+        let en_newtab = InternalPages::render_newtab(500, Language::English, test_token);
         assert!(en_newtab.contains("dir=\"ltr\""));
         assert!(en_newtab.contains("lang=\"en\""));
         assert!(en_newtab.contains("Welcome to Valorex"));
+        assert!(en_newtab.contains(test_token));
     }
 }
 

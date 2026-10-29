@@ -353,95 +353,90 @@ impl BrowserWindow {
         let storage_for_protocol = storage.clone();
         let proxy_content_ipc = proxy.clone();
 
-        let shortcuts_script = format!(
-            r#"
-            (function() {{
-                const __valorex_token = "{}";
+        let shortcuts_script = r#"
+            (function() {
                 const nativeIpcPost = (window.ipc && typeof window.ipc.postMessage === 'function')
                     ? window.ipc.postMessage.bind(window.ipc)
                     : (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc && typeof window.webkit.messageHandlers.ipc.postMessage === 'function')
                         ? window.webkit.messageHandlers.ipc.postMessage.bind(window.webkit.messageHandlers.ipc)
                         : null;
 
-                function sendContentIpc(payload) {{
-                    if (payload && typeof payload === 'object') {{
-                        payload.token = __valorex_token;
-                    }}
+                function sendContentIpc(payload) {
                     const jsonStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
-                    if (nativeIpcPost) {{
+                    if (nativeIpcPost) {
                         nativeIpcPost(jsonStr);
                         return;
-                    }}
-                }}
+                    }
+                }
 
-                window.addEventListener('keydown', function(e) {{
+                window.addEventListener('keydown', function(e) {
                     if (!e.isTrusted) return;
-                    if (e.key === 'F11') {{
+                    if (e.key === 'F11') {
                         e.preventDefault();
-                        sendContentIpc({{ action: 'toggle_fullscreen' }});
-                    }} else if (e.ctrlKey && e.key === 'Tab') {{
+                        sendContentIpc({ action: 'toggle_fullscreen' });
+                    } else if (e.ctrlKey && e.key === 'Tab') {
                         e.preventDefault();
-                        if (e.shiftKey) {{
-                            sendContentIpc({{ action: 'prev_tab' }});
-                        }} else {{
-                            sendContentIpc({{ action: 'next_tab' }});
-                        }}
-                    }} else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {{
+                        if (e.shiftKey) {
+                            sendContentIpc({ action: 'prev_tab' });
+                        } else {
+                            sendContentIpc({ action: 'next_tab' });
+                        }
+                    } else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
                         e.preventDefault();
-                        sendContentIpc({{ action: 'switch_tab_index', index: parseInt(e.key) - 1 }});
-                    }} else if (e.ctrlKey && e.shiftKey && !e.altKey) {{
-                        if (e.key === 't' || e.key === 'T') {{
+                        sendContentIpc({ action: 'switch_tab_index', index: parseInt(e.key) - 1 });
+                    } else if (e.ctrlKey && e.shiftKey && !e.altKey) {
+                        if (e.key === 't' || e.key === 'T') {
                             e.preventDefault();
-                            sendContentIpc({{ action: 'reopen_closed_tab' }});
-                        }} else if (e.key === 'g' || e.key === 'G') {{
+                            sendContentIpc({ action: 'reopen_closed_tab' });
+                        } else if (e.key === 'g' || e.key === 'G') {
                             e.preventDefault();
-                            sendContentIpc({{ action: 'open_gemini' }});
-                        }}
-                    }} else if (e.ctrlKey && !e.shiftKey && !e.altKey) {{
-                        if (e.key === 't' || e.key === 'T') {{
+                            sendContentIpc({ action: 'open_gemini' });
+                        }
+                    } else if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+                        if (e.key === 't' || e.key === 'T') {
                             e.preventDefault();
-                            sendContentIpc({{ action: 'new_tab' }});
-                        }} else if (e.key === 'w' || e.key === 'W') {{
+                            sendContentIpc({ action: 'new_tab' });
+                        } else if (e.key === 'w' || e.key === 'W') {
                             e.preventDefault();
-                            sendContentIpc({{ action: 'close_tab' }});
-                        }} else if (e.key === 'r' || e.key === 'R') {{
+                            sendContentIpc({ action: 'close_tab' });
+                        } else if (e.key === 'r' || e.key === 'R') {
                             e.preventDefault();
-                            sendContentIpc({{ action: 'reload' }});
-                        }} else if (e.key === 'h' || e.key === 'H') {{
+                            sendContentIpc({ action: 'reload' });
+                        } else if (e.key === 'h' || e.key === 'H') {
                             e.preventDefault();
-                            sendContentIpc({{ action: 'open_history' }});
-                        }} else if (e.key === 'b' || e.key === 'B') {{
+                            sendContentIpc({ action: 'open_history' });
+                        } else if (e.key === 'b' || e.key === 'B') {
                             e.preventDefault();
-                            sendContentIpc({{ action: 'open_bookmarks' }});
-                        }} else if (e.key === 'j' || e.key === 'J') {{
+                            sendContentIpc({ action: 'open_bookmarks' });
+                        } else if (e.key === 'j' || e.key === 'J') {
                             e.preventDefault();
-                            sendContentIpc({{ action: 'open_downloads' }});
-                        }} else if (e.key === '=' || e.key === '+') {{
+                            sendContentIpc({ action: 'open_downloads' });
+                        } else if (e.key === '=' || e.key === '+') {
                             e.preventDefault();
-                            sendContentIpc({{ action: 'zoom_in' }});
-                        }} else if (e.key === '-' || e.key === '_') {{
+                            sendContentIpc({ action: 'zoom_in' });
+                        } else if (e.key === '-' || e.key === '_') {
                             e.preventDefault();
-                            sendContentIpc({{ action: 'zoom_out' }});
-                        }} else if (e.key === '0') {{
+                            sendContentIpc({ action: 'zoom_out' });
+                        } else if (e.key === '0') {
                             e.preventDefault();
-                            sendContentIpc({{ action: 'zoom_reset' }});
-                        }}
-                    }}
-                }}, true);
+                            sendContentIpc({ action: 'zoom_reset' });
+                        }
+                    }
+                }, true);
 
                 // Floating Smart Action Bar on text selection
                 let selectionBar = null;
-                document.addEventListener('mouseup', function(e) {{
+                document.addEventListener('mouseup', function(e) {
                     if (!e.isTrusted) return;
                     const sel = window.getSelection();
                     const text = sel ? sel.toString().trim() : '';
-                    if (text && text.length > 0) {{
-                        if (!selectionBar) {{
+                    if (text && text.length > 0) {
+                        if (!selectionBar) {
                             selectionBar = document.createElement('div');
                             selectionBar.id = 'valorex-selection-bar';
                             selectionBar.style.cssText = 'position:fixed; z-index:2147483647; background:#18191f; border:1px solid #00d2ff; border-radius:8px; padding:4px 8px; display:flex; gap:6px; box-shadow:0 8px 24px rgba(0,0,0,0.6); font-family:-apple-system,sans-serif; font-size:12px;';
                             document.body.appendChild(selectionBar);
-                        }}
+                        }
                         selectionBar.innerHTML = `
                             <button id="valorex-sel-search" style="background:#242731; border:none; color:#f0f2f5; padding:4px 8px; border-radius:5px; cursor:pointer; display:flex; align-items:center; gap:4px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Google</button>
                             <button id="valorex-sel-gemini" style="background:rgba(168,85,247,0.25); border:1px solid #a855f7; color:#d8b4fe; padding:4px 8px; border-radius:5px; cursor:pointer; display:flex; align-items:center; gap:4px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>Ask Gemini</button>
@@ -452,26 +447,24 @@ impl BrowserWindow {
                         selectionBar.style.left = Math.max(10, Math.min(window.innerWidth - 220, rect.left)) + 'px';
                         selectionBar.style.display = 'flex';
 
-                        document.getElementById('valorex-sel-search').onclick = () => {{
-                            sendContentIpc({{ action: 'navigate', url: 'https://www.google.com/search?q=' + encodeURIComponent(text) }});
+                        document.getElementById('valorex-sel-search').onclick = () => {
+                            sendContentIpc({ action: 'navigate', url: 'https://www.google.com/search?q=' + encodeURIComponent(text) });
                             selectionBar.style.display = 'none';
-                        }};
-                        document.getElementById('valorex-sel-gemini').onclick = () => {{
-                            sendContentIpc({{ action: 'navigate', url: 'https://gemini.google.com/app?q=' + encodeURIComponent(text) }});
+                        };
+                        document.getElementById('valorex-sel-gemini').onclick = () => {
+                            sendContentIpc({ action: 'navigate', url: 'https://gemini.google.com/app?q=' + encodeURIComponent(text) });
                             selectionBar.style.display = 'none';
-                        }};
-                        document.getElementById('valorex-sel-copy').onclick = () => {{
+                        };
+                        document.getElementById('valorex-sel-copy').onclick = () => {
                             navigator.clipboard.writeText(text);
                             selectionBar.style.display = 'none';
-                        }};
-                    }} else if (selectionBar) {{
+                        };
+                    } else if (selectionBar) {
                         selectionBar.style.display = 'none';
-                    }}
-                }});
-            }})();
-            "#,
-            secret_token
-        );
+                    }
+                });
+            })();
+        "#;
 
         let mut web_context = if config.incognito {
             wry::WebContext::new(None)
@@ -488,11 +481,12 @@ impl BrowserWindow {
         let shared_lang_for_proto = shared_lang.clone();
         let active_url_ipc = current_active_url.clone();
         let token_ipc = secret_token.clone();
+        let token_proto = secret_token.clone();
         let content_builder = WebViewBuilder::new_with_web_context(&mut web_context)
             .with_user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
             .with_url(&initial_url)
             .with_devtools(!config.incognito)
-            .with_initialization_script(&shortcuts_script)
+            .with_initialization_script(shortcuts_script)
             .with_ipc_handler(move |req: wry::http::Request<String>| {
                 let req_uri = req.uri().to_string();
                 let current_url = active_url_ipc.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -513,15 +507,18 @@ impl BrowserWindow {
                 let stripped = uri.trim_start_matches("valorex://");
                 let page = stripped.split(['/', '?', '#']).next().unwrap_or("newtab");
                 let body = match page {
-                    "history" => InternalPages::render_history(&storage_for_protocol, current_lang),
-                    "bookmarks" => InternalPages::render_bookmarks(&storage_for_protocol, current_lang),
-                    "downloads" => InternalPages::render_downloads(&storage_for_protocol, current_lang),
-                    "settings" => InternalPages::render_settings(current_lang),
-                    _ => InternalPages::render_newtab(blocked_counter.load(Ordering::Relaxed), current_lang),
+                    "history" => InternalPages::render_history(&storage_for_protocol, current_lang, &token_proto),
+                    "bookmarks" => InternalPages::render_bookmarks(&storage_for_protocol, current_lang, &token_proto),
+                    "downloads" => InternalPages::render_downloads(&storage_for_protocol, current_lang, &token_proto),
+                    "settings" => InternalPages::render_settings(current_lang, &token_proto),
+                    _ => InternalPages::render_newtab(blocked_counter.load(Ordering::Relaxed), current_lang, &token_proto),
                 };
 
                 http::Response::builder()
                     .header("content-type", "text/html; charset=utf-8")
+                    .header("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none';")
+                    .header("X-Frame-Options", "DENY")
+                    .header("X-Content-Type-Options", "nosniff")
                     .status(200)
                     .body(body.as_bytes().to_vec())
                     .unwrap_or_else(|_| http::Response::new(Vec::new()))
@@ -600,172 +597,140 @@ impl BrowserWindow {
             token: Option<String>,
         }
         let payload = serde_json::from_str::<ContentIpc>(msg).ok()?;
-        let is_authorized = is_internal || payload.token.as_deref() == Some(secret_token);
+        let has_valid_token = payload.token.as_deref() == Some(secret_token);
 
         match payload.action.as_str() {
-            "navigate" => {
-                if !is_authorized {
-                    warn!("Security: blocked unauthorized navigate IPC from external page");
-                    return None;
-                }
-                let url = payload.url?;
-                let trimmed_lower = url.trim().to_lowercase();
-                if !is_internal && (trimmed_lower.starts_with("file://")
-                    || trimmed_lower.starts_with("valorex://")
-                    || trimmed_lower.starts_with("valorex-action://")
-                    || trimmed_lower.starts_with("javascript:")
-                    || trimmed_lower.starts_with("data:")) {
-                    warn!("Security: blocked privileged navigation from non-internal origin: {}", url);
-                    return None;
-                }
-                Some(BrowserEvent::Navigate(url))
-            }
-            "open_history" => {
-                if !is_authorized {
-                    warn!("Security: rejected unauthorized open_history");
-                    return None;
-                }
-                Some(BrowserEvent::Navigate("valorex://history".into()))
-            }
-            "open_bookmarks" => {
-                if !is_authorized {
-                    warn!("Security: rejected unauthorized open_bookmarks");
-                    return None;
-                }
-                Some(BrowserEvent::Navigate("valorex://bookmarks".into()))
-            }
-            "open_downloads" => {
-                if !is_authorized {
-                    warn!("Security: rejected unauthorized open_downloads");
-                    return None;
-                }
-                Some(BrowserEvent::Navigate("valorex://downloads".into()))
-            }
+            // --- Tier 1: Privileged Admin Actions (Require BOTH is_internal == true AND has_valid_token == true) ---
             "clear_history" => {
-                if !is_internal {
-                    warn!("Security: rejected unauthorized clear_history from external web content");
+                if !is_internal || !has_valid_token {
+                    warn!("Security: rejected unauthorized clear_history (is_internal: {}, has_token: {})", is_internal, has_valid_token);
                     return None;
                 }
                 Some(BrowserEvent::ClearHistory)
             }
             "delete_bookmark" => {
-                if !is_internal {
-                    warn!("Security: rejected unauthorized delete_bookmark from external web content");
+                if !is_internal || !has_valid_token {
+                    warn!("Security: rejected unauthorized delete_bookmark (is_internal: {}, has_token: {})", is_internal, has_valid_token);
                     return None;
                 }
                 payload.id.map(BrowserEvent::DeleteBookmark)
             }
-            "new_tab" => {
-                if !is_authorized {
-                    warn!("Security: rejected unauthorized new_tab from external web content");
-                    return None;
-                }
-                Some(BrowserEvent::NewTab("valorex://newtab".into()))
-            }
-            "close_tab" => {
-                if !is_authorized {
-                    warn!("Security: rejected unauthorized close_tab from external web content");
-                    return None;
-                }
-                Some(BrowserEvent::CloseTab(payload.id.unwrap_or(0) as usize))
-            }
-            "reload" => {
-                if !is_authorized {
-                    warn!("Security: rejected unauthorized reload from external web content");
-                    return None;
-                }
-                Some(BrowserEvent::Reload)
-            }
-            "zoom_in" => {
-                if !is_authorized { return None; }
-                Some(BrowserEvent::ZoomIn)
-            }
-            "zoom_out" => {
-                if !is_authorized { return None; }
-                Some(BrowserEvent::ZoomOut)
-            }
-            "zoom_reset" => {
-                if !is_authorized { return None; }
-                Some(BrowserEvent::ZoomReset)
-            }
-            "toggle_fullscreen" => {
-                if !is_authorized { return None; }
-                Some(BrowserEvent::ToggleFullscreen)
-            }
-            "next_tab" => {
-                if !is_authorized { return None; }
-                Some(BrowserEvent::NextTab)
-            }
-            "prev_tab" => {
-                if !is_authorized { return None; }
-                Some(BrowserEvent::PrevTab)
-            }
-            "switch_tab_index" => {
-                if !is_authorized { return None; }
-                payload.index.map(BrowserEvent::SwitchTabIndex)
-            }
             "import_data" => {
-                if !is_internal {
-                    warn!("Security: rejected unauthorized import_data from external web content");
+                if !is_internal || !has_valid_token {
+                    warn!("Security: rejected unauthorized import_data (is_internal: {}, has_token: {})", is_internal, has_valid_token);
                     return None;
                 }
                 let target = payload.target.unwrap_or_else(|| "google-chrome".to_string());
                 Some(BrowserEvent::ImportData(target))
             }
-            "open_gemini" => {
-                if !is_authorized { return None; }
-                Some(BrowserEvent::OpenGemini)
-            }
             "google_login" => {
-                if !is_internal {
-                    warn!("Security: rejected unauthorized google_login from external web content");
+                if !is_internal || !has_valid_token {
+                    warn!("Security: rejected unauthorized google_login (is_internal: {}, has_token: {})", is_internal, has_valid_token);
                     return None;
                 }
                 Some(BrowserEvent::OpenGoogleLogin)
             }
             "toggle_window_controls" => {
-                if !is_internal {
-                    warn!("Security: rejected toggle_window_controls from external web content");
+                if !is_internal || !has_valid_token {
+                    warn!("Security: rejected toggle_window_controls (is_internal: {}, has_token: {})", is_internal, has_valid_token);
                     return None;
                 }
                 Some(BrowserEvent::ToggleWindowControls)
             }
             "toggle_tab_close" => {
-                if !is_internal {
-                    warn!("Security: rejected toggle_tab_close from external web content");
+                if !is_internal || !has_valid_token {
+                    warn!("Security: rejected toggle_tab_close (is_internal: {}, has_token: {})", is_internal, has_valid_token);
                     return None;
                 }
                 Some(BrowserEvent::ToggleTabCloseButtons)
             }
             "toggle_decorations" => {
-                if !is_internal {
-                    warn!("Security: rejected toggle_decorations from external web content");
+                if !is_internal || !has_valid_token {
+                    warn!("Security: rejected toggle_decorations (is_internal: {}, has_token: {})", is_internal, has_valid_token);
                     return None;
                 }
                 Some(BrowserEvent::ToggleDecorations)
             }
-            "reopen_closed_tab" => {
-                if !is_authorized { return None; }
-                Some(BrowserEvent::ReopenClosedTab)
-            }
             "set_language" => {
-                if !is_internal {
-                    warn!("Security: rejected set_language from external web content");
+                if !is_internal || !has_valid_token {
+                    warn!("Security: rejected set_language (is_internal: {}, has_token: {})", is_internal, has_valid_token);
                     return None;
                 }
                 payload.target.map(BrowserEvent::SetLanguage)
             }
             "minimize_window" => {
-                if !is_internal { return None; }
+                if !is_internal || !has_valid_token { return None; }
                 Some(BrowserEvent::MinimizeWindow)
             }
             "maximize_window" => {
-                if !is_internal { return None; }
+                if !is_internal || !has_valid_token { return None; }
                 Some(BrowserEvent::MaximizeWindow)
             }
             "close_window" => {
-                if !is_internal { return None; }
+                if !is_internal || !has_valid_token { return None; }
                 Some(BrowserEvent::CloseWindow)
+            }
+
+            // --- Tier 2: Navigation (Guarded against internal / local schemes from external callers) ---
+            "navigate" => {
+                let url = payload.url?;
+                let trimmed_lower = url.trim().to_lowercase();
+                if (!is_internal || !has_valid_token) && (trimmed_lower.starts_with("file://")
+                    || trimmed_lower.starts_with("valorex://")
+                    || trimmed_lower.starts_with("valorex-action://")
+                    || trimmed_lower.starts_with("javascript:")
+                    || trimmed_lower.starts_with("data:")) {
+                    warn!("Security: blocked privileged navigation to {} from unauthenticated origin", url);
+                    return None;
+                }
+                Some(BrowserEvent::Navigate(url))
+            }
+
+            // --- Tier 3: Browser UI Actions & Keyboard Shortcuts ---
+            "open_history" => {
+                Some(BrowserEvent::Navigate("valorex://history".into()))
+            }
+            "open_bookmarks" => {
+                Some(BrowserEvent::Navigate("valorex://bookmarks".into()))
+            }
+            "open_downloads" => {
+                Some(BrowserEvent::Navigate("valorex://downloads".into()))
+            }
+            "new_tab" => {
+                Some(BrowserEvent::NewTab("valorex://newtab".into()))
+            }
+            "close_tab" => {
+                Some(BrowserEvent::CloseTab(payload.id.unwrap_or(0) as usize))
+            }
+            "reload" => {
+                Some(BrowserEvent::Reload)
+            }
+            "zoom_in" => {
+                Some(BrowserEvent::ZoomIn)
+            }
+            "zoom_out" => {
+                Some(BrowserEvent::ZoomOut)
+            }
+            "zoom_reset" => {
+                Some(BrowserEvent::ZoomReset)
+            }
+            "toggle_fullscreen" => {
+                Some(BrowserEvent::ToggleFullscreen)
+            }
+            "next_tab" => {
+                Some(BrowserEvent::NextTab)
+            }
+            "prev_tab" => {
+                Some(BrowserEvent::PrevTab)
+            }
+            "switch_tab_index" => {
+                payload.index.map(BrowserEvent::SwitchTabIndex)
+            }
+            "reopen_closed_tab" => {
+                Some(BrowserEvent::ReopenClosedTab)
+            }
+            "open_gemini" => {
+                Some(BrowserEvent::OpenGemini)
             }
             _ => None,
         }
@@ -1600,31 +1565,49 @@ mod tests {
     fn test_ipc_privileged_internal_accepted() {
         let token = "test_secret_token_123456";
 
-        // Internal caller (is_internal = true) is authorized for admin actions
-        let clear_req = r#"{"action":"clear_history"}"#;
-        match BrowserWindow::authorize_and_parse_content_ipc(clear_req, true, token) {
+        // Internal caller (is_internal = true) with valid token is authorized for admin actions
+        let clear_req = format!(r#"{{"action":"clear_history","token":"{}"}}"#, token);
+        match BrowserWindow::authorize_and_parse_content_ipc(&clear_req, true, token) {
             Some(BrowserEvent::ClearHistory) => {}
             other => panic!("Expected ClearHistory event, got: {:?}", other),
         }
 
-        let del_bm_req = r#"{"action":"delete_bookmark","id":42}"#;
-        match BrowserWindow::authorize_and_parse_content_ipc(del_bm_req, true, token) {
+        let del_bm_req = format!(r#"{{"action":"delete_bookmark","id":42,"token":"{}"}}"#, token);
+        match BrowserWindow::authorize_and_parse_content_ipc(&del_bm_req, true, token) {
             Some(BrowserEvent::DeleteBookmark(42)) => {}
             other => panic!("Expected DeleteBookmark(42), got: {:?}", other),
         }
 
-        let import_req = r#"{"action":"import_data","target":"firefox"}"#;
-        match BrowserWindow::authorize_and_parse_content_ipc(import_req, true, token) {
+        let import_req = format!(r#"{{"action":"import_data","target":"firefox","token":"{}"}}"#, token);
+        match BrowserWindow::authorize_and_parse_content_ipc(&import_req, true, token) {
             Some(BrowserEvent::ImportData(t)) => assert_eq!(t, "firefox"),
             other => panic!("Expected ImportData(firefox), got: {:?}", other),
         }
     }
 
     #[test]
+    fn test_ipc_privileged_internal_rejected_without_token_or_race() {
+        let token = "test_secret_token_123456";
+
+        // Internal origin (even if spoofed by async navigation race) without valid token MUST be rejected
+        let clear_no_token = r#"{"action":"clear_history"}"#;
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(clear_no_token, true, token).is_none());
+
+        let clear_wrong_token = r#"{"action":"clear_history","token":"attacker_guessed_token"}"#;
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(clear_wrong_token, true, token).is_none());
+
+        let del_bm_no_token = r#"{"action":"delete_bookmark","id":42}"#;
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(del_bm_no_token, true, token).is_none());
+
+        let import_no_token = r#"{"action":"import_data","target":"firefox"}"#;
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(import_no_token, true, token).is_none());
+    }
+
+    #[test]
     fn test_ipc_navigate_scheme_blocking() {
         let token = "test_secret_token_123456";
 
-        // Dangerous / privileged schemes blocked for external callers
+        // Dangerous / privileged schemes blocked for external callers even without/with tokens
         let dangerous_schemes = [
             "file:///etc/passwd",
             "FILE:///home/user/.ssh/id_rsa",
@@ -1636,7 +1619,7 @@ mod tests {
         ];
 
         for url in dangerous_schemes {
-            let msg = format!(r#"{{"action":"navigate","url":"{}","token":"{}"}}"#, url, token);
+            let msg = format!(r#"{{"action":"navigate","url":"{}"}}"#, url);
             assert!(
                 BrowserWindow::authorize_and_parse_content_ipc(&msg, false, token).is_none(),
                 "Expected navigation to '{}' from external origin to be blocked",
@@ -1644,16 +1627,16 @@ mod tests {
             );
         }
 
-        // Safe web navigation allowed with valid token
-        let safe_msg = format!(r#"{{"action":"navigate","url":"https://rust-lang.org","token":"{}"}}"#, token);
-        match BrowserWindow::authorize_and_parse_content_ipc(&safe_msg, false, token) {
+        // Safe web navigation allowed from external caller
+        let safe_msg = r#"{"action":"navigate","url":"https://rust-lang.org"}"#;
+        match BrowserWindow::authorize_and_parse_content_ipc(safe_msg, false, token) {
             Some(BrowserEvent::Navigate(u)) => assert_eq!(u, "https://rust-lang.org"),
             other => panic!("Expected Navigate to https://rust-lang.org, got: {:?}", other),
         }
 
-        // Internal caller navigating to valorex:// allowed
-        let internal_valorex_msg = r#"{"action":"navigate","url":"valorex://history"}"#;
-        match BrowserWindow::authorize_and_parse_content_ipc(internal_valorex_msg, true, token) {
+        // Internal caller with valid token navigating to valorex:// allowed
+        let internal_valorex_msg = format!(r#"{{"action":"navigate","url":"valorex://history","token":"{}"}}"#, token);
+        match BrowserWindow::authorize_and_parse_content_ipc(&internal_valorex_msg, true, token) {
             Some(BrowserEvent::Navigate(u)) => assert_eq!(u, "valorex://history"),
             other => panic!("Expected Navigate to valorex://history, got: {:?}", other),
         }
@@ -1664,17 +1647,17 @@ mod tests {
         let token = "secret_valid_token_xyz";
         let invalid_token = "attacker_fake_token_abc";
 
-        let new_tab_valid = format!(r#"{{"action":"new_tab","token":"{}"}}"#, token);
+        let clear_valid = format!(r#"{{"action":"clear_history","token":"{}"}}"#, token);
         assert!(matches!(
-            BrowserWindow::authorize_and_parse_content_ipc(&new_tab_valid, false, token),
-            Some(BrowserEvent::NewTab(_))
+            BrowserWindow::authorize_and_parse_content_ipc(&clear_valid, true, token),
+            Some(BrowserEvent::ClearHistory)
         ));
 
-        let new_tab_invalid = format!(r#"{{"action":"new_tab","token":"{}"}}"#, invalid_token);
-        assert!(BrowserWindow::authorize_and_parse_content_ipc(&new_tab_invalid, false, token).is_none());
+        let clear_invalid = format!(r#"{{"action":"clear_history","token":"{}"}}"#, invalid_token);
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(&clear_invalid, true, token).is_none());
 
-        let new_tab_missing = r#"{"action":"new_tab"}"#;
-        assert!(BrowserWindow::authorize_and_parse_content_ipc(new_tab_missing, false, token).is_none());
+        let clear_missing = r#"{"action":"clear_history"}"#;
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(clear_missing, true, token).is_none());
     }
 }
 

@@ -284,7 +284,8 @@ impl BrowserImporter {
 
             let rows = stmt.query_map([limit as i64], |row| {
                 let url: String = row.get(0)?;
-                let title: String = row.get(1)?;
+                let title: Option<String> = row.get(1)?;
+                let title = title.unwrap_or_default();
                 let visit_count: i64 = row.get(2)?;
                 let last_visit_time: i64 = row.get(3)?;
                 Ok((url, title, visit_count, last_visit_time))

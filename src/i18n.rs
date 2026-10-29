@@ -14,9 +14,11 @@ impl Default for Language {
 
 impl Language {
     pub fn from_code(code: &str) -> Self {
-        match code.to_lowercase().as_str() {
-            "en" | "english" => Language::English,
-            _ => Language::Arabic,
+        let lower = code.trim().to_lowercase();
+        if lower.starts_with("en") {
+            Language::English
+        } else {
+            Language::Arabic
         }
     }
 
@@ -177,8 +179,8 @@ impl Language {
 
     pub fn switch_language(&self) -> &'static str {
         match self {
-            Language::Arabic => "Switch to English",
-            Language::English => "التحويل إلى العربية",
+            Language::Arabic => "التبديل إلى الإنجليزية",
+            Language::English => "Switch to Arabic",
         }
     }
 

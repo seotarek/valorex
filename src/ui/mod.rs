@@ -641,9 +641,11 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   const tabsContainer = document.getElementById('tabs-container');
   if (tabsContainer) {
     tabsContainer.addEventListener('wheel', (e) => {
-      if (e.deltaY !== 0) {
+      const isRtl = document.documentElement.getAttribute('dir') === 'rtl';
+      const delta = e.deltaX !== 0 ? e.deltaX : (e.deltaY * (isRtl ? -1 : 1));
+      if (delta !== 0) {
         e.preventDefault();
-        tabsContainer.scrollLeft += e.deltaY;
+        tabsContainer.scrollLeft += delta;
       }
     }, { passive: false });
   }

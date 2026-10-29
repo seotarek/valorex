@@ -1482,7 +1482,12 @@ impl BrowserWindow {
             trimmed.to_string()
         } else if trimmed_lower.starts_with("http://") || trimmed_lower.starts_with("https://") || trimmed_lower.starts_with("file://") {
             trimmed.to_string()
-        } else if trimmed_lower == "localhost" || trimmed_lower.starts_with("localhost:") {
+        } else if trimmed_lower == "localhost"
+            || trimmed_lower.starts_with("localhost:")
+            || trimmed_lower.starts_with("localhost/")
+            || trimmed_lower == "127.0.0.1"
+            || trimmed_lower.starts_with("127.0.0.1:")
+            || trimmed_lower.starts_with("127.0.0.1/") {
             format!("http://{}", trimmed)
         } else if trimmed.contains('.') && !trimmed.contains(' ') {
             if trimmed.starts_with('.') || trimmed.ends_with('.') {
@@ -1520,6 +1525,8 @@ mod tests {
     fn test_resolve_url_localhost_and_casing() {
         assert_eq!(BrowserWindow::resolve_url("localhost"), "http://localhost");
         assert_eq!(BrowserWindow::resolve_url("localhost:3000"), "http://localhost:3000");
+        assert_eq!(BrowserWindow::resolve_url("localhost/dashboard"), "http://localhost/dashboard");
+        assert_eq!(BrowserWindow::resolve_url("127.0.0.1:8080"), "http://127.0.0.1:8080");
         assert_eq!(BrowserWindow::resolve_url("HTTPS://EXAMPLE.COM"), "HTTPS://EXAMPLE.COM");
         assert_eq!(BrowserWindow::resolve_url(".."), "https://www.google.com/search?q=%2E%2E");
     }

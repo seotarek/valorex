@@ -2,10 +2,13 @@
 Version=1.0
 Type=Application
 Name=Valorex
+Name[ar]=فالوركس
 GenericName=Web Browser
+GenericName[ar]=متصفح الويب
 Comment=Ultra-fast, privacy-first desktop web browser engineered in Rust
-Exec=/home/tarek/valorex/target/release/valorex %u
-Icon=/home/tarek/valorex/assets/valorex.svg
+Comment[ar]=متصفح ويب فائق السرعة مبني بلغة رست مع حماية متقدمة للخصوصية
+Exec=valorex %u
+Icon=valorex
 Terminal=false
 Categories=Network;WebBrowser;
 MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;

@@ -224,6 +224,8 @@ impl TabManager {
             self.tabs[0].url = "valorex://newtab".to_string();
             self.tabs[0].blocked_count = 0;
             self.tabs[0].is_pinned = false;
+            self.tabs[0].can_go_back = false;
+            self.tabs[0].can_go_forward = false;
             self.push_closed_tab(old_url);
             return Some(self.active_id);
         }

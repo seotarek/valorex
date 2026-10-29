@@ -52,6 +52,10 @@ impl FilterUpdater {
             match client.get(url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     let content = resp.text().await?;
+                    if content.len() < 10_000 || (!content.starts_with("[Adblock Plus") && !content.starts_with('!')) {
+                        warn!("Downloaded filter {} is invalid or truncated ({} bytes), preserving existing rules", filename, content.len());
+                        continue;
+                    }
                     let target_path = self.rules_dir.join(filename);
                     let tmp_path = self.rules_dir.join(format!("{}.tmp", filename));
                     fs::write(&tmp_path, &content)?;

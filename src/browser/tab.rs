@@ -60,6 +60,15 @@ impl TabManager {
         id
     }
 
+    fn push_closed_tab(&mut self, url: String) {
+        if url != "valorex://newtab" {
+            self.closed_tabs.push(url);
+            if self.closed_tabs.len() > 50 {
+                self.closed_tabs.remove(0);
+            }
+        }
+    }
+
     pub fn duplicate_tab(&mut self, id: usize) -> Option<usize> {
         let original = self.tabs.iter().find(|t| t.id == id)?.clone();
         let new_id = self.next_id;
@@ -75,12 +84,15 @@ impl TabManager {
             is_pinned: false,
         };
 
-        let insert_idx = self
-            .tabs
-            .iter()
-            .position(|t| t.id == id)
-            .map(|pos| pos + 1)
-            .unwrap_or(self.tabs.len());
+        let insert_idx = if original.is_pinned {
+            self.tabs.iter().position(|t| !t.is_pinned).unwrap_or(self.tabs.len())
+        } else {
+            self.tabs
+                .iter()
+                .position(|t| t.id == id)
+                .map(|pos| pos + 1)
+                .unwrap_or(self.tabs.len())
+        };
 
         self.tabs.insert(insert_idx, new_tab);
         self.active_id = new_id;
@@ -109,10 +121,14 @@ impl TabManager {
 
     pub fn close_other_tabs(&mut self, keep_id: usize) {
         if self.tabs.iter().any(|t| t.id == keep_id) {
-            for tab in &self.tabs {
-                if tab.id != keep_id && !tab.is_pinned && tab.url != "valorex://newtab" {
-                    self.closed_tabs.push(tab.url.clone());
-                }
+            let to_close: Vec<String> = self
+                .tabs
+                .iter()
+                .filter(|t| t.id != keep_id && !t.is_pinned)
+                .map(|t| t.url.clone())
+                .collect();
+            for url in to_close {
+                self.push_closed_tab(url);
             }
             self.tabs.retain(|t| t.id == keep_id || t.is_pinned);
             self.active_id = keep_id;
@@ -126,9 +142,7 @@ impl TabManager {
                 i -= 1;
                 if !self.tabs[i].is_pinned {
                     let removed = self.tabs.remove(i);
-                    if removed.url != "valorex://newtab" {
-                        self.closed_tabs.push(removed.url);
-                    }
+                    self.push_closed_tab(removed.url);
                 }
             }
             if !self.tabs.iter().any(|t| t.id == self.active_id) {
@@ -194,32 +208,25 @@ impl TabManager {
     pub fn close_tab(&mut self, id: usize) -> Option<usize> {
         if self.tabs.len() <= 1 {
             // Keep at least one tab open
-            if let Some(tab) = self.tabs.first_mut() {
+            if let Some(tab) = self.tabs.first() {
                 if tab.id != id {
                     return None;
                 }
-                if tab.url != "valorex://newtab" {
-                    self.closed_tabs.push(tab.url.clone());
-                    if self.closed_tabs.len() > 50 {
-                        self.closed_tabs.remove(0);
-                    }
-                }
-                tab.title = "New Tab".to_string();
-                tab.url = "valorex://newtab".to_string();
-                tab.blocked_count = 0;
-                tab.is_pinned = false;
+            } else {
+                return None;
             }
+            let old_url = self.tabs[0].url.clone();
+            self.tabs[0].title = "New Tab".to_string();
+            self.tabs[0].url = "valorex://newtab".to_string();
+            self.tabs[0].blocked_count = 0;
+            self.tabs[0].is_pinned = false;
+            self.push_closed_tab(old_url);
             return Some(self.active_id);
         }
 
         if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
             let removed = self.tabs.remove(pos);
-            if removed.url != "valorex://newtab" {
-                self.closed_tabs.push(removed.url);
-                if self.closed_tabs.len() > 50 {
-                    self.closed_tabs.remove(0);
-                }
-            }
+            self.push_closed_tab(removed.url);
             if self.active_id == id {
                 let new_active_index = if pos >= self.tabs.len() {
                     self.tabs.len() - 1
@@ -391,5 +398,38 @@ mod tests {
         assert_eq!(manager.tabs().len(), 3);
         assert_eq!(manager.tabs().last().unwrap().id, reopened);
         assert_eq!(manager.tabs().last().unwrap().url, "https://tab3.com");
+    }
+
+    #[test]
+    fn test_duplicate_pinned_tab_preserves_order() {
+        let mut manager = TabManager::new("https://tab1.com");
+        let t2 = manager.new_tab("https://tab2.com");
+        let _t3 = manager.new_tab("https://tab3.com");
+
+        manager.toggle_pin_tab(1);
+        manager.toggle_pin_tab(t2);
+        // Tabs should now be [1 (pinned), t2 (pinned), t3 (unpinned)]
+        assert!(manager.tabs()[0].is_pinned);
+        assert!(manager.tabs()[1].is_pinned);
+        assert!(!manager.tabs()[2].is_pinned);
+
+        // Duplicate the first pinned tab (1)
+        let dup = manager.duplicate_tab(1).expect("Failed to duplicate tab 1");
+        assert_eq!(manager.active_id(), dup);
+        // Duplicated tab should be unpinned and positioned after pinned tabs (index 2)
+        assert_eq!(manager.tabs()[0].is_pinned, true);
+        assert_eq!(manager.tabs()[1].is_pinned, true);
+        assert_eq!(manager.tabs()[2].id, dup);
+        assert_eq!(manager.tabs()[2].is_pinned, false);
+    }
+
+    #[test]
+    fn test_closed_tabs_cap() {
+        let mut manager = TabManager::new("https://start.com");
+        for i in 0..60 {
+            let id = manager.new_tab(&format!("https://test{}.com", i));
+            manager.close_tab(id);
+        }
+        assert!(manager.closed_tabs.len() <= 50);
     }
 }

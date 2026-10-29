@@ -63,7 +63,7 @@ impl Language {
 
     pub fn close_tabs_to_right(&self) -> &'static str {
         match self {
-            Language::Arabic => "إغلاق التبويبات إلى اليمين",
+            Language::Arabic => "إغلاق التبويبات إلى اليسار",
             Language::English => "Close Tabs to the Right",
         }
     }
@@ -106,14 +106,14 @@ impl Language {
     // --- Window Controls ---
     pub fn toggle_window_controls(&self) -> &'static str {
         match self {
-            Language::Arabic => "أزرار التحكم بالنافذة (تصغير، تكبير، إغلاق)",
+            Language::Arabic => "أزرار التحكم بالنافذة",
             Language::English => "Window Caption Controls",
         }
     }
 
     pub fn toggle_tab_close_btn(&self) -> &'static str {
         match self {
-            Language::Arabic => "زر إغلاق التبويب (X)",
+            Language::Arabic => "زر إغلاق التبويب",
             Language::English => "Tab Close (X) Button",
         }
     }

@@ -23,7 +23,7 @@ pub struct BrowserConfig {
     pub tab_close_visible: bool,
     #[serde(default = "default_false")]
     pub decorations_visible: bool,
-    #[serde(default = "default_false")]
+    #[serde(skip)]
     pub incognito: bool,
 }
 

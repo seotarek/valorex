@@ -242,18 +242,20 @@ impl BrowserImporter {
                 Ok((url, title, visit_count, last_visit_time))
             })?;
 
-            let mut imported = 0;
+            let mut batch = Vec::new();
             for row in rows.flatten() {
                 let (url, title, visit_count, last_visit_time) = row;
                 if !url.is_empty() && (url.starts_with("http://") || url.starts_with("https://")) {
                     // Chromium timestamp is microseconds since Jan 1, 1601 UTC
                     let visit_time_iso = Self::chromium_time_to_iso(last_visit_time);
-                    if let Ok(_) = storage.record_history_with_time(&url, &title, &visit_time_iso, visit_count) {
-                        imported += 1;
-                    }
+                    batch.push((url, title, visit_time_iso, visit_count));
                 }
             }
-            imported
+            let slice: Vec<(&str, &str, &str, i64)> = batch
+                .iter()
+                .map(|(u, t, tm, c)| (u.as_str(), t.as_str(), tm.as_str(), *c))
+                .collect();
+            storage.record_history_with_time_batch(&slice).unwrap_or(0)
         };
 
         Ok(count)
@@ -284,7 +286,7 @@ impl BrowserImporter {
 
             // 1. Import Bookmarks
             let mut bm_stmt = conn.prepare(
-                "SELECT p.url, b.title, p.visit_count 
+                "SELECT p.url, COALESCE(b.title, p.title, 'Bookmark'), p.visit_count 
                  FROM moz_bookmarks b 
                  JOIN moz_places p ON b.fk = p.id 
                  WHERE b.type = 1 AND p.url LIKE 'http%'"
@@ -318,7 +320,7 @@ impl BrowserImporter {
                 Ok((url, title.unwrap_or_default(), visit_count, last_visit_date))
             })?;
 
-            let mut hist = 0;
+            let mut batch = Vec::new();
             for row in hist_rows.flatten() {
                 let (url, title, visit_count, last_visit_date) = row;
                 let iso_time = match last_visit_date {
@@ -328,10 +330,13 @@ impl BrowserImporter {
                     }
                     None => Utc::now().to_rfc3339(),
                 };
-                if let Ok(_) = storage.record_history_with_time(&url, &title, &iso_time, visit_count) {
-                    hist += 1;
-                }
+                batch.push((url, title, iso_time, visit_count));
             }
+            let slice: Vec<(&str, &str, &str, i64)> = batch
+                .iter()
+                .map(|(u, t, tm, c)| (u.as_str(), t.as_str(), tm.as_str(), *c))
+                .collect();
+            let hist = storage.record_history_with_time_batch(&slice).unwrap_or(0);
 
             (bms, hist)
         };

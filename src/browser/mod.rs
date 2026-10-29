@@ -251,15 +251,24 @@ impl BrowserWindow {
         let proxy_nav = proxy.clone();
         let active_url_nav = current_active_url.clone();
         let on_navigate = move |url: String| -> bool {
+            let current_url = active_url_nav.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let is_internal = current_url.starts_with("valorex://");
+            let trimmed_lower = url.trim().to_lowercase();
+
             if url.starts_with("valorex-action://") {
                 let action_raw = &url["valorex-action://".len()..];
                 if let Ok(decoded) = percent_encoding::percent_decode_str(action_raw).decode_utf8() {
-                    let current_url = active_url_nav.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                    let is_internal = current_url.starts_with("valorex://");
                     Self::dispatch_content_ipc_str(&decoded, &proxy_nav, is_internal);
                 }
                 return false;
             }
+
+            // Block external websites from navigating to local file:// or internal valorex:// URLs
+            if !is_internal && (trimmed_lower.starts_with("file://") || trimmed_lower.starts_with("valorex://")) {
+                warn!("Security: blocked unauthorized navigation to {} from external page {}", url, current_url);
+                return false;
+            }
+
             let mut s = shield_for_nav.lock().unwrap_or_else(|e| e.into_inner());
             if s.should_block(&url, &url, "document") {
                 warn!("Valorex Shield blocked navigation to: {}", url);
@@ -289,7 +298,7 @@ impl BrowserWindow {
             let _ = proxy_dl_comp.send_event(BrowserEvent::DownloadCompleted(url, path, success));
         };
 
-        let blocked_counter = shield.lock().unwrap().blocked_counter();
+        let blocked_counter = shield.lock().unwrap_or_else(|e| e.into_inner()).blocked_counter();
         let storage_for_protocol = storage.clone();
         let proxy_content_ipc = proxy.clone();
         let shortcuts_script = r#"
@@ -525,8 +534,9 @@ impl BrowserWindow {
             match payload.action.as_str() {
                 "navigate" => {
                     if let Some(url) = payload.url {
-                        if !is_internal && url.starts_with("file://") {
-                            warn!("Security: blocked file:// navigation from non-internal origin");
+                        let trimmed_lower = url.trim().to_lowercase();
+                        if !is_internal && (trimmed_lower.starts_with("file://") || trimmed_lower.starts_with("valorex://")) {
+                            warn!("Security: blocked privileged navigation from non-internal origin: {}", url);
                             return;
                         }
                         let _ = proxy.send_event(BrowserEvent::Navigate(url));
@@ -810,7 +820,9 @@ impl BrowserWindow {
             BrowserEvent::ToggleDecorations => {
                 self.decorations_enabled = !self.decorations_enabled;
                 self.config.decorations_visible = self.decorations_enabled;
-                let _ = self.config.save();
+                if !self.config.incognito {
+                    let _ = self.config.save();
+                }
                 self.window.set_decorations(self.decorations_enabled);
                 info!("Window decorations toggled to: {}", self.decorations_enabled);
                 self.sync_toolbar_state();
@@ -824,7 +836,9 @@ impl BrowserWindow {
                 self.sync_toolbar_state();
             }
             BrowserEvent::CloseWindow => {
-                let _ = self.config.save();
+                if !self.config.incognito {
+                    let _ = self.config.save();
+                }
                 std::process::exit(0);
             }
             BrowserEvent::DragWindow => {
@@ -1063,7 +1077,7 @@ impl BrowserWindow {
                     let lang = self.current_language;
                     let menu = gtk::Menu::new();
                     let (enabled, count) = {
-                        let s = self.shield.lock().unwrap();
+                        let s = self.shield.lock().unwrap_or_else(|e| e.into_inner());
                         (s.is_enabled(), s.get_blocked_count())
                     };
 
@@ -1167,7 +1181,9 @@ impl BrowserWindow {
                 self.current_language = crate::i18n::Language::from_code(&lang_code);
                 *self.shared_lang.lock().unwrap_or_else(|e| e.into_inner()) = self.current_language;
                 self.config.language = self.current_language.code().to_string();
-                let _ = self.config.save();
+                if !self.config.incognito {
+                    let _ = self.config.save();
+                }
                 info!("Language changed to: {:?}", self.current_language);
                 if let Some(tab) = self.tab_manager.active_tab() {
                     if tab.url.starts_with("valorex://") {
@@ -1193,14 +1209,18 @@ impl BrowserWindow {
             BrowserEvent::ToggleWindowControls => {
                 self.show_window_controls = !self.show_window_controls;
                 self.config.window_controls_visible = self.show_window_controls;
-                let _ = self.config.save();
+                if !self.config.incognito {
+                    let _ = self.config.save();
+                }
                 info!("Toggled window caption controls to: {}", self.show_window_controls);
                 self.sync_toolbar_state();
             }
             BrowserEvent::ToggleTabCloseButtons => {
                 self.show_tab_close_buttons = !self.show_tab_close_buttons;
                 self.config.tab_close_visible = self.show_tab_close_buttons;
-                let _ = self.config.save();
+                if !self.config.incognito {
+                    let _ = self.config.save();
+                }
                 info!("Toggled tab close buttons to: {}", self.show_tab_close_buttons);
                 self.sync_toolbar_state();
             }
@@ -1291,7 +1311,7 @@ impl BrowserWindow {
 
         let is_bookmarked = self.storage.is_bookmarked(&current_url).unwrap_or(false);
         let (shield_enabled, blocked_count) = {
-            let s = self.shield.lock().unwrap();
+            let s = self.shield.lock().unwrap_or_else(|e| e.into_inner());
             (s.is_enabled(), s.get_blocked_count())
         };
 

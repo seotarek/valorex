@@ -54,14 +54,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.shields_enabled = false;
     }
 
-    for arg in args.iter().skip(1) {
-        if !arg.starts_with('-') {
-            config.homepage = arg.clone();
-            break;
-        }
+    let cli_url = args.iter().skip(1).find(|a| !a.starts_with('-')).map(|u| BrowserWindow::resolve_url(u));
+    if let Some(target) = cli_url {
+        config.homepage = target;
     }
 
     let shield = Arc::new(Mutex::new(ShieldEngine::new()));
+    shield.lock().unwrap_or_else(|e| e.into_inner()).set_enabled(config.shields_enabled);
+
+    // Immediately load offline cached filter rules at startup
+    if let Ok(updater) = FilterUpdater::new() {
+        if let Ok(local_rules) = updater.load_local_rules() {
+            if !local_rules.is_empty() {
+                shield.lock().unwrap_or_else(|e| e.into_inner()).load_rules(local_rules.lines());
+                info!("Loaded offline cached filter rules into Shield engine at startup.");
+            }
+        }
+    }
+
     let storage = if is_incognito {
         info!("Incognito mode active: using ephemeral in-memory storage.");
         StorageEngine::new_in_memory()?
@@ -110,6 +120,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window_id: id,
                 ..
             } if id == window_id => {
+                if !browser_window.config.incognito {
+                    let _ = browser_window.config.save();
+                }
                 println!("Valorex shutting down gracefully.");
                 *control_flow = ControlFlow::Exit;
             }

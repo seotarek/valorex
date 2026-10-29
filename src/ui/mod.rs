@@ -283,6 +283,11 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     fill: currentColor;
   }
 
+  html[dir="rtl"] #back-btn svg,
+  html[dir="rtl"] #forward-btn svg {
+    transform: scaleX(-1);
+  }
+
   .icon-btn.ai-btn {
     color: #c084fc;
     transition: color 0.15s, background 0.15s, transform 0.15s;
@@ -476,12 +481,12 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     </button>
 
     <!-- Gemini AI Assistant Button -->
-    <button class="icon-btn ai-btn" id="gemini-btn" title="Gemini AI Copilot (مساعد جمناي الذكي)">
+    <button class="icon-btn ai-btn" id="gemini-btn" title="Gemini AI Copilot">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>
     </button>
 
     <!-- Google Profile Button -->
-    <button class="icon-btn profile-btn" id="profile-btn" title="Google Account & Gmail (حساب جوجل وجيميل)">
+    <button class="icon-btn profile-btn" id="profile-btn" title="Google Account & Gmail">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
     </button>
 
@@ -510,10 +515,15 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     if (!maxBtn) return;
     const iconMax = maxBtn.querySelector('.icon-max');
     const iconRestore = maxBtn.querySelector('.icon-restore');
+    const isAr = document.documentElement.getAttribute('dir') === 'rtl';
     if (iconMax && iconRestore) {
       iconMax.style.display = isMaximized ? 'none' : 'block';
       iconRestore.style.display = isMaximized ? 'block' : 'none';
-      maxBtn.title = isMaximized ? 'Restore' : 'Maximize';
+      if (isAr) {
+        maxBtn.title = isMaximized ? 'استعادة الحجم' : 'تكبير النافذة';
+      } else {
+        maxBtn.title = isMaximized ? 'Restore' : 'Maximize';
+      }
     }
   }
 
@@ -525,6 +535,8 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     // Remove existing tabs
     const oldTabs = tabsContainer.querySelectorAll('.tab');
     oldTabs.forEach(t => t.remove());
+
+    const isAr = document.documentElement.getAttribute('dir') === 'rtl';
 
     tabsState.forEach(tab => {
       const tabEl = document.createElement('div');
@@ -583,18 +595,27 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
         ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5v6l1 1 1-1v-6h5v-2l-2-2z"/></svg>`
         : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
 
-      tabEl.innerHTML = `
-        <div class="tab-icon">${iconSvg}</div>
-        <div class="tab-title" title="${tab.title}">${tab.title}</div>
-        <div class="tab-close" title="Close Tab (Ctrl+W)">
-          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg>
-        </div>
-      `;
+      const iconEl = document.createElement('div');
+      iconEl.className = 'tab-icon';
+      iconEl.innerHTML = iconSvg;
 
-      tabEl.querySelector('.tab-close').onclick = (e) => {
+      const titleEl = document.createElement('div');
+      titleEl.className = 'tab-title';
+      titleEl.title = tab.title || '';
+      titleEl.textContent = tab.title || '';
+
+      const closeEl = document.createElement('div');
+      closeEl.className = 'tab-close';
+      closeEl.title = isAr ? 'إغلاق علامة التبويب (Ctrl+W)' : 'Close Tab (Ctrl+W)';
+      closeEl.innerHTML = '<svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg>';
+      closeEl.onclick = (e) => {
         e.stopPropagation();
         post({ action: 'close_tab', id: tab.id });
       };
+
+      tabEl.appendChild(iconEl);
+      tabEl.appendChild(titleEl);
+      tabEl.appendChild(closeEl);
 
       tabsContainer.insertBefore(tabEl, newBtn);
     });
@@ -757,6 +778,11 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
       if (profileBtn) profileBtn.title = isAr ? 'حساب Google و Gmail' : 'Google Account & Gmail';
       const menuBtn = document.getElementById('menu-btn');
       if (menuBtn) menuBtn.title = isAr ? 'قائمة Valorex' : 'Valorex Menu';
+      const maxBtn = document.getElementById('win-max');
+      if (maxBtn) {
+        const isMax = maxBtn.querySelector('.icon-restore')?.style.display === 'block';
+        updateMaximizeState(isMax);
+      }
     }
     if (state.tabs) {
       tabsState = state.tabs;

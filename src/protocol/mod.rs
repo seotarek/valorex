@@ -16,6 +16,15 @@ pub fn escape_html(input: &str) -> String {
     escaped
 }
 
+pub fn sanitize_href(url: &str) -> String {
+    let lower = url.trim().to_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("valorex://") {
+        escape_html(url)
+    } else {
+        "#".to_string()
+    }
+}
+
 pub struct InternalPages;
 
 impl InternalPages {
@@ -635,6 +644,7 @@ impl InternalPages {
             let display_time = item.visit_time.split('T').next().unwrap_or(&item.visit_time);
             let safe_time = escape_html(display_time);
             let safe_url = escape_html(&item.url);
+            let safe_href = sanitize_href(&item.url);
             let safe_title = escape_html(&item.title);
             list_html.push_str(&format!(
                 r#"<div class="history-item">
@@ -642,7 +652,7 @@ impl InternalPages {
                     <a href="{}" class="history-title">{}</a>
                     <span class="history-url">{}</span>
                 </div>"#,
-                safe_time, safe_url, safe_title, safe_url
+                safe_time, safe_href, safe_title, safe_url
             ));
         }
 
@@ -735,6 +745,9 @@ impl InternalPages {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    direction: ltr;
+    unicode-bidi: isolate;
+    text-align: left;
   }}
   .empty {{
     text-align: center;
@@ -794,6 +807,7 @@ impl InternalPages {
         let mut list_html = String::new();
         for item in entries {
             let safe_url = escape_html(&item.url);
+            let safe_href = sanitize_href(&item.url);
             let safe_title = escape_html(&item.title);
             list_html.push_str(&format!(
                 r#"<div class="bookmark-item">
@@ -802,7 +816,7 @@ impl InternalPages {
                     <span class="bookmark-url">{}</span>
                     <button class="del-btn" onclick="deleteBookmark({})">{}</button>
                 </div>"#,
-                safe_url, safe_title, safe_url, item.id, remove_label
+                safe_href, safe_title, safe_url, item.id, remove_label
             ));
         }
 
@@ -864,6 +878,9 @@ impl InternalPages {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    direction: ltr;
+    unicode-bidi: isolate;
+    text-align: left;
   }}
   .del-btn {{
     background: transparent;
@@ -980,7 +997,7 @@ impl InternalPages {
   .file-icon {{ font-size: 20px; }}
   .file-info {{ flex: 1; }}
   .filename {{ font-weight: 500; font-size: 14px; margin-bottom: 2px; }}
-  .filepath {{ font-size: 11px; color: var(--secondary); }}
+  .filepath {{ font-size: 11px; color: var(--secondary); direction: ltr; unicode-bidi: isolate; text-align: left; }}
   .badge {{
     background: rgba(16, 185, 129, 0.15);
     color: #10b981;
@@ -1225,7 +1242,7 @@ impl InternalPages {
         <div>مزود البحث الافتراضي</div>
         <div class="setting-desc">محرك Google مهيأ افتراضياً لجميع استعلامات شريط العناوين.</div>
       </div>
-      <span class="badge">Google (افتراضي)</span>
+      <span class="badge">محرك Google الافتراضي</span>
     </div>
   </div>
 
@@ -1234,14 +1251,14 @@ impl InternalPages {
     <div class="section-title">المظهر والتحكم بالنوافذ والتبويبات</div>
     <div class="setting-row">
       <div>
-        <div>أزرار التحكم بالنافذة (التصغير، التكبير، الإغلاق)</div>
+        <div>أزرار التحكم بالنافذة</div>
         <div class="setting-desc">إظهار أو إخفاء أزرار التحكم بالنافذة في شريط التبويبات العلوي لمنح التبويبات المساحة الكاملة.</div>
       </div>
       <button class="btn-action" onclick="toggleWindowControls()">تبديل الإظهار</button>
     </div>
     <div class="setting-row">
       <div>
-        <div>زر إغلاق التبويب (X)</div>
+        <div>زر إغلاق التبويب</div>
         <div class="setting-desc">إظهار أو إخفاء زر الإغلاق من التبويبات لمنع الإغلاق بالخطأ وزيادة اتساع العناوين.</div>
       </div>
       <button class="btn-action" onclick="toggleTabClose()">تبديل الإظهار</button>
@@ -1663,6 +1680,16 @@ mod tests {
     fn test_escape_html() {
         assert_eq!(escape_html("<script>alert('xss')</script>"), "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;");
         assert_eq!(escape_html("Hello & \"World\""), "Hello &amp; &quot;World&quot;");
+    }
+
+    #[test]
+    fn test_sanitize_href() {
+        assert_eq!(sanitize_href("javascript:alert(1)"), "#");
+        assert_eq!(sanitize_href("JAVASCRIPT:void(0)"), "#");
+        assert_eq!(sanitize_href("data:text/html,evil"), "#");
+        assert_eq!(sanitize_href("https://valorex.org"), "https://valorex.org");
+        assert_eq!(sanitize_href("http://example.com"), "http://example.com");
+        assert_eq!(sanitize_href("valorex://settings"), "valorex://settings");
     }
 }
 

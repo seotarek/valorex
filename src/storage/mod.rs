@@ -109,7 +109,6 @@ impl StorageEngine {
             );
 
             CREATE INDEX IF NOT EXISTS idx_history_time ON history(visit_time DESC);
-            CREATE INDEX IF NOT EXISTS idx_bookmarks_url ON bookmarks(url);
             CREATE INDEX IF NOT EXISTS idx_downloads_time ON downloads(timestamp DESC);
             ",
         )?;
@@ -153,6 +152,34 @@ impl StorageEngine {
             params![url, title, visit_time, visit_count],
         )?;
         Ok(())
+    }
+
+    pub fn record_history_with_time_batch(&self, entries: &[(&str, &str, &str, i64)]) -> Result<usize, Box<dyn std::error::Error>> {
+        if entries.is_empty() {
+            return Ok(0);
+        }
+        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let tx = conn.transaction()?;
+        let mut count = 0;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO history (url, title, visit_time, visit_count)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(url) DO UPDATE SET
+                     title = CASE WHEN length(?2) > 0 THEN ?2 ELSE history.title END,
+                     visit_time = MAX(history.visit_time, ?3),
+                     visit_count = MAX(history.visit_count, ?4)",
+            )?;
+            for (url, title, visit_time, visit_count) in entries {
+                if url.trim().is_empty() || url.starts_with("valorex://") {
+                    continue;
+                }
+                stmt.execute(params![url, title, visit_time, visit_count])?;
+                count += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(count)
     }
 
     pub fn update_history_title(&self, url: &str, title: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -224,17 +251,19 @@ impl StorageEngine {
         let now = Utc::now().to_rfc3339();
         let target_folder = folder.unwrap_or("default");
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        conn.execute(
+        let id: i64 = conn.query_row(
             "
             INSERT INTO bookmarks (title, url, created_at, folder)
             VALUES (?1, ?2, ?3, ?4)
             ON CONFLICT(url) DO UPDATE SET
                 title = ?1,
                 folder = ?4
+            RETURNING id
             ",
             params![title, url, now, target_folder],
+            |row| row.get(0),
         )?;
-        Ok(conn.last_insert_rowid())
+        Ok(id)
     }
 
     pub fn get_bookmarks(&self) -> Result<Vec<BookmarkEntry>, Box<dyn std::error::Error>> {
@@ -427,6 +456,31 @@ mod tests {
         storage.update_history_title("https://news.com", "New Updated Title").unwrap();
         let history = storage.get_recent_history(10).unwrap();
         assert_eq!(history[0].title, "New Updated Title");
+    }
+
+    #[test]
+    fn test_bookmark_returning_id_on_conflict() {
+        let storage = StorageEngine::new_in_memory().unwrap();
+        let id1 = storage.add_bookmark("Google", "https://google.com", None).unwrap();
+        let id2 = storage.add_bookmark("Google Updated", "https://google.com", None).unwrap();
+        assert_eq!(id1, id2);
+        let bms = storage.get_bookmarks().unwrap();
+        assert_eq!(bms.len(), 1);
+        assert_eq!(bms[0].title, "Google Updated");
+    }
+
+    #[test]
+    fn test_record_history_batch() {
+        let storage = StorageEngine::new_in_memory().unwrap();
+        let batch = vec![
+            ("https://site1.com", "Site 1", "2026-10-29T00:00:00Z", 2),
+            ("https://site2.com", "Site 2", "2026-10-29T00:01:00Z", 5),
+            ("valorex://settings", "Settings", "2026-10-29T00:02:00Z", 1),
+        ];
+        let inserted = storage.record_history_with_time_batch(&batch).unwrap();
+        assert_eq!(inserted, 2);
+        let recent = storage.get_recent_history(10).unwrap();
+        assert_eq!(recent.len(), 2);
     }
 }
 

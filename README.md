@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://seotarek.github.io/valorex/"><img alt="Website" src="https://img.shields.io/badge/website-GitHub%20Pages-00d2ff?logo=githubpages&logoColor=white"></a>
   <a href="https://github.com/seotarek/valorex/releases"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0-00d2ff?logo=github&logoColor=white"></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-34%20passed-10b981?logo=githubactions&logoColor=white">
+  <a href="https://github.com/seotarek/valorex/actions/workflows/rust.yml"><img alt="Rust CI" src="https://github.com/seotarek/valorex/actions/workflows/rust.yml/badge.svg"></a>
   <img alt="Built with Rust 2021" src="https://img.shields.io/badge/built%20with-Rust%202021-f97316?logo=rust&logoColor=white">
   <img alt="Engine" src="https://img.shields.io/badge/engine-WebKitGTK%20%2B%20Tao-6366f1">
   <img alt="Adblock" src="https://img.shields.io/badge/adblock-Brave%20Engine-fb542b?logo=brave&logoColor=white">

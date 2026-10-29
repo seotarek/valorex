@@ -16,6 +16,7 @@
   <img alt="Built with Rust 2021" src="https://img.shields.io/badge/built%20with-Rust%202021-f97316?logo=rust&logoColor=white">
   <img alt="Engine" src="https://img.shields.io/badge/engine-WebKitGTK%20%2B%20Tao-6366f1">
   <img alt="Adblock" src="https://img.shields.io/badge/adblock-Brave%20Engine-fb542b?logo=brave&logoColor=white">
+  <a href="https://slsa.dev"><img alt="SLSA 3" src="https://slsa.dev/images/gh-badge-level3.svg"></a>
   <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-64748b">
 </p>
 

@@ -1,0 +1,103 @@
+name: SLSA3 Release Provenance
+
+on:
+  release:
+    types: [created, published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to generate SLSA3 provenance for'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & Package Release
+    runs-on: ubuntu-latest
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+      tag: ${{ steps.tag.outputs.tag }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Determine Release Tag
+        id: tag
+        run: |
+          RELEASE_TAG="${{ github.event.release.tag_name || inputs.tag || 'v0.1.0' }}"
+          echo "tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Release Binary
+        run: cargo build --release --locked
+
+      - name: Package Distribution Bundle
+        id: package
+        run: |
+          RELEASE_TAG="${{ steps.tag.outputs.tag }}"
+          BUNDLE_DIR="valorex-${RELEASE_TAG}-linux-x86_64"
+          ARCHIVE_NAME="${BUNDLE_DIR}.tar.gz"
+
+          mkdir -p "dist/${BUNDLE_DIR}"
+          cp target/release/valorex "dist/${BUNDLE_DIR}/"
+          cp README.md "dist/${BUNDLE_DIR}/"
+          cp LICENSE "dist/${BUNDLE_DIR}/"
+          cp assets/valorex.desktop "dist/${BUNDLE_DIR}/"
+          cp assets/valorex.svg "dist/${BUNDLE_DIR}/"
+
+          cd dist
+          tar -czvf "${ARCHIVE_NAME}" "${BUNDLE_DIR}"
+          sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
+          rm -rf "${BUNDLE_DIR}"
+          cd ..
+
+      - name: Upload Artifacts to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_TAG="${{ steps.tag.outputs.tag }}"
+          gh release upload "${RELEASE_TAG}" dist/* --clobber || true
+
+      - name: Generate Subject Hashes for OpenSSF SLSA
+        id: hash
+        run: |
+          cd dist
+          # Output base64-encoded sha256 hashes of release artifacts for OpenSSF SLSA generator
+          echo "hashes=$(sha256sum * | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate GitHub Artifact Attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/*'
+
+  provenance:
+    name: Generate OpenSSF SLSA Level 3 Provenance
+    needs: [build]
+    permissions:
+      id-token: write   # Required to sign provenance with Sigstore
+      contents: write   # Required to upload .intoto.jsonl to release
+      actions: read     # Required for SLSA generator telemetry
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: "${{ needs.build.outputs.hashes }}"
+      upload-assets: true
+      upload-tag-name: "${{ needs.build.outputs.tag }}"
+      provenance-name: "valorex-${{ needs.build.outputs.tag }}.intoto.jsonl"

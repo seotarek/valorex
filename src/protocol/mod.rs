@@ -1218,27 +1218,27 @@ impl InternalPages {
 
   <!-- Google & Gemini AI Integration -->
   <div class="section">
-    <div class="section-title">خدمات Google والذكاء الاصطناعي</div>
+    <div class="section-title">خدمات الويب ومساعد Gemini</div>
     <div class="setting-row">
       <div>
-        <div>تسجيل الدخول بحساب Google وجيميل</div>
-        <div class="setting-desc">الوصول السلس إلى حساب Gmail وخدمات جوجل مع هوية كروم الأصلية وحفظ الجلسة.</div>
+        <div>تسجيل الدخول بحساب Google</div>
+        <div class="setting-desc">فتح صفحة تسجيل الدخول الرسمية لخدمات Google عبر المتصفح.</div>
       </div>
       <button class="btn-action" onclick="loginGoogle()">تسجيل الدخول</button>
     </div>
     <div class="setting-row">
       <div>
-        <div>مساعد Gemini الذكي</div>
-        <div class="setting-desc">مساعد ذكاء اصطناعي مدمج للبحث المتقدم وتلخيص صفحات الويب وكتابة المحتوى.</div>
+        <div>الوصول السريع إلى Google Gemini</div>
+        <div class="setting-desc">فتح واجهة Gemini في لسان جديد للمساعدة الذكية في البحث وتحليل المعلومات.</div>
       </div>
       <button class="btn-action purple" onclick="openGemini()">فتح Gemini</button>
     </div>
     <div class="setting-row">
       <div>
-        <div>حفظ الجلسات وملفات تعريف الارتباط</div>
-        <div class="setting-desc">الجلسات وملفات تعريف الارتباط وتوكنات الدخول تبقى محفوظة دائماً حتى بعد إعادة التشغيل.</div>
+        <div>إدارة الجلسات وملفات تعريف الارتباط</div>
+        <div class="setting-desc">حفظ ملفات تعريف الارتباط محلياً في مجلد الإعدادات لضمان بقاء الجلسات النشطة.</div>
       </div>
-      <span class="badge green">جلسة دائمة</span>
+      <span class="badge green">مفعل تلقائياً</span>
     </div>
   </div>
 
@@ -1548,27 +1548,27 @@ impl InternalPages {
 
   <!-- Google & Gemini AI Integration -->
   <div class="section">
-    <div class="section-title">Google Services & Gemini AI</div>
+    <div class="section-title">Web Services & Gemini Assistant</div>
     <div class="setting-row">
       <div>
-        <div>Google Account & Gmail Access</div>
-        <div class="setting-desc">Legitimate Chrome User-Agent and persistent session directory active.</div>
+        <div>Google Services Sign-in</div>
+        <div class="setting-desc">Launch official Google account authentication page in a dedicated browser tab.</div>
       </div>
       <button class="btn-action" onclick="loginGoogle()">Sign in to Google</button>
     </div>
     <div class="setting-row">
       <div>
-        <div>Gemini AI Copilot</div>
-        <div class="setting-desc">Built-in AI Assistant for page summarization and deep research queries.</div>
+        <div>Google Gemini Quick Access</div>
+        <div class="setting-desc">Launch Google Gemini in a new tab for research assistance and query analysis.</div>
       </div>
       <button class="btn-action purple" onclick="openGemini()">Launch Gemini</button>
     </div>
     <div class="setting-row">
       <div>
-        <div>Session State Persistence</div>
-        <div class="setting-desc">Cookies and authentication tokens persist across browser restarts.</div>
+        <div>Cookie & Session Storage</div>
+        <div class="setting-desc">Store web cookies and session state locally in the user config profile.</div>
       </div>
-      <span class="badge green">PERSISTENT</span>
+      <span class="badge green">ENABLED</span>
     </div>
   </div>
 
@@ -1737,6 +1737,34 @@ mod tests {
         assert_eq!(sanitize_href("https://valorex.org"), "https://valorex.org");
         assert_eq!(sanitize_href("http://example.com"), "http://example.com");
         assert_eq!(sanitize_href("valorex://settings"), "valorex://settings");
+    }
+
+    #[test]
+    fn test_render_settings_contains_accurate_descriptions() {
+        let ar_html = InternalPages::render_settings(Language::Arabic);
+        assert!(ar_html.contains("خدمات الويب ومساعد Gemini"));
+        assert!(ar_html.contains("الوصول السريع إلى Google Gemini"));
+        assert!(ar_html.contains("إدارة الجلسات وملفات تعريف الارتباط"));
+        assert!(ar_html.contains("dir=\"rtl\""));
+
+        let en_html = InternalPages::render_settings(Language::English);
+        assert!(en_html.contains("Web Services &amp; Gemini Assistant") || en_html.contains("Web Services & Gemini Assistant"));
+        assert!(en_html.contains("Google Gemini Quick Access"));
+        assert!(en_html.contains("Cookie &amp; Session Storage") || en_html.contains("Cookie & Session Storage"));
+        assert!(en_html.contains("dir=\"ltr\""));
+    }
+
+    #[test]
+    fn test_render_newtab_bidi() {
+        let ar_newtab = InternalPages::render_newtab(500, Language::Arabic);
+        assert!(ar_newtab.contains("dir=\"rtl\""));
+        assert!(ar_newtab.contains("lang=\"ar\""));
+        assert!(ar_newtab.contains("أهلاً بك في Valorex"));
+
+        let en_newtab = InternalPages::render_newtab(500, Language::English);
+        assert!(en_newtab.contains("dir=\"ltr\""));
+        assert!(en_newtab.contains("lang=\"en\""));
+        assert!(en_newtab.contains("Welcome to Valorex"));
     }
 }
 

@@ -284,6 +284,10 @@ impl BrowserWindow {
             let is_internal = current_url.starts_with("valorex://");
 
             if trimmed.starts_with("valorex-action://") {
+                if !is_internal {
+                    warn!("Security: blocked unauthorized valorex-action:// navigation from external page: {}", current_url);
+                    return false;
+                }
                 let action_raw = &trimmed["valorex-action://".len()..];
                 if let Ok(decoded) = percent_encoding::percent_decode_str(action_raw).decode_utf8() {
                     Self::dispatch_content_ipc_str(&decoded, &proxy_nav, is_internal, &token_nav);
@@ -291,8 +295,12 @@ impl BrowserWindow {
                 return false;
             }
 
-            // Block external websites from navigating to local file:// or internal valorex:// URLs
-            if !is_internal && (trimmed_lower.starts_with("file://") || trimmed_lower.starts_with("valorex://")) {
+            // Block external websites from navigating to local file://, internal valorex://, javascript: or data: URLs
+            if !is_internal && (trimmed_lower.starts_with("file://")
+                || trimmed_lower.starts_with("valorex://")
+                || trimmed_lower.starts_with("valorex-action://")
+                || trimmed_lower.starts_with("javascript:")
+                || trimmed_lower.starts_with("data:")) {
                 warn!("Security: blocked unauthorized navigation to {} from external page {}", url, current_url);
                 return false;
             }
@@ -349,20 +357,21 @@ impl BrowserWindow {
             r#"
             (function() {{
                 const __valorex_token = "{}";
+                const nativeIpcPost = (window.ipc && typeof window.ipc.postMessage === 'function')
+                    ? window.ipc.postMessage.bind(window.ipc)
+                    : (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc && typeof window.webkit.messageHandlers.ipc.postMessage === 'function')
+                        ? window.webkit.messageHandlers.ipc.postMessage.bind(window.webkit.messageHandlers.ipc)
+                        : null;
+
                 function sendContentIpc(payload) {{
                     if (payload && typeof payload === 'object') {{
                         payload.token = __valorex_token;
                     }}
                     const jsonStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
-                    if (window.ipc && typeof window.ipc.postMessage === 'function') {{
-                        window.ipc.postMessage(jsonStr);
+                    if (nativeIpcPost) {{
+                        nativeIpcPost(jsonStr);
                         return;
                     }}
-                    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc) {{
-                        window.webkit.messageHandlers.ipc.postMessage(jsonStr);
-                        return;
-                    }}
-                    window.location.href = 'valorex-action://' + encodeURIComponent(jsonStr);
                 }}
 
                 window.addEventListener('keydown', function(e) {{
@@ -485,8 +494,11 @@ impl BrowserWindow {
             .with_devtools(!config.incognito)
             .with_initialization_script(&shortcuts_script)
             .with_ipc_handler(move |req: wry::http::Request<String>| {
+                let req_uri = req.uri().to_string();
                 let current_url = active_url_ipc.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                let is_internal = current_url.starts_with("valorex://");
+                // A request is internal ONLY if WebKit's request origin URI confirms it is valorex://
+                // or if req_uri is empty (initial state) AND current_url is confirmed valorex://
+                let is_internal = req_uri.starts_with("valorex://") || (req_uri.is_empty() && current_url.starts_with("valorex://"));
                 Self::dispatch_content_ipc_str(req.body(), &proxy_content_ipc, is_internal, &token_ipc);
             })
             .with_on_page_load_handler(on_page_load)
@@ -573,12 +585,11 @@ impl BrowserWindow {
         Ok(instance)
     }
 
-    pub fn dispatch_content_ipc_str(
+    pub fn authorize_and_parse_content_ipc(
         msg: &str,
-        proxy: &EventLoopProxy<BrowserEvent>,
         is_internal: bool,
         secret_token: &str,
-    ) {
+    ) -> Option<BrowserEvent> {
         #[derive(serde::Deserialize)]
         struct ContentIpc {
             action: String,
@@ -588,183 +599,186 @@ impl BrowserWindow {
             index: Option<usize>,
             token: Option<String>,
         }
-        if let Ok(payload) = serde_json::from_str::<ContentIpc>(msg) {
-            let is_authorized = is_internal || payload.token.as_deref() == Some(secret_token);
+        let payload = serde_json::from_str::<ContentIpc>(msg).ok()?;
+        let is_authorized = is_internal || payload.token.as_deref() == Some(secret_token);
 
-            match payload.action.as_str() {
-                "navigate" => {
-                    if !is_authorized {
-                        warn!("Security: blocked unauthorized navigate IPC from external page");
-                        return;
-                    }
-                    if let Some(url) = payload.url {
-                        let trimmed_lower = url.trim().to_lowercase();
-                        if !is_internal && (trimmed_lower.starts_with("file://") || trimmed_lower.starts_with("valorex://")) {
-                            warn!("Security: blocked privileged navigation from non-internal origin: {}", url);
-                            return;
-                        }
-                        let _ = proxy.send_event(BrowserEvent::Navigate(url));
-                    }
+        match payload.action.as_str() {
+            "navigate" => {
+                if !is_authorized {
+                    warn!("Security: blocked unauthorized navigate IPC from external page");
+                    return None;
                 }
-                "open_history" => {
-                    if !is_authorized {
-                        warn!("Security: rejected unauthorized open_history");
-                        return;
-                    }
-                    let _ = proxy.send_event(BrowserEvent::Navigate("valorex://history".into()));
+                let url = payload.url?;
+                let trimmed_lower = url.trim().to_lowercase();
+                if !is_internal && (trimmed_lower.starts_with("file://")
+                    || trimmed_lower.starts_with("valorex://")
+                    || trimmed_lower.starts_with("valorex-action://")
+                    || trimmed_lower.starts_with("javascript:")
+                    || trimmed_lower.starts_with("data:")) {
+                    warn!("Security: blocked privileged navigation from non-internal origin: {}", url);
+                    return None;
                 }
-                "open_bookmarks" => {
-                    if !is_authorized {
-                        warn!("Security: rejected unauthorized open_bookmarks");
-                        return;
-                    }
-                    let _ = proxy.send_event(BrowserEvent::Navigate("valorex://bookmarks".into()));
-                }
-                "open_downloads" => {
-                    if !is_authorized {
-                        warn!("Security: rejected unauthorized open_downloads");
-                        return;
-                    }
-                    let _ = proxy.send_event(BrowserEvent::Navigate("valorex://downloads".into()));
-                }
-                "clear_history" => {
-                    if !is_internal {
-                        warn!("Security: rejected unauthorized clear_history from external web content");
-                        return;
-                    }
-                    let _ = proxy.send_event(BrowserEvent::ClearHistory);
-                }
-                "delete_bookmark" => {
-                    if !is_internal {
-                        warn!("Security: rejected unauthorized delete_bookmark from external web content");
-                        return;
-                    }
-                    if let Some(id) = payload.id {
-                        let _ = proxy.send_event(BrowserEvent::DeleteBookmark(id));
-                    }
-                }
-                "new_tab" => {
-                    if !is_authorized {
-                        warn!("Security: rejected unauthorized new_tab from external web content");
-                        return;
-                    }
-                    let _ = proxy.send_event(BrowserEvent::NewTab("valorex://newtab".into()));
-                }
-                "close_tab" => {
-                    if !is_authorized {
-                        warn!("Security: rejected unauthorized close_tab from external web content");
-                        return;
-                    }
-                    if let Some(id) = payload.id {
-                        let _ = proxy.send_event(BrowserEvent::CloseTab(id as usize));
-                    } else {
-                        let _ = proxy.send_event(BrowserEvent::CloseTab(0));
-                    }
-                }
-                "reload" => {
-                    if !is_authorized {
-                        warn!("Security: rejected unauthorized reload from external web content");
-                        return;
-                    }
-                    let _ = proxy.send_event(BrowserEvent::Reload);
-                }
-                "zoom_in" => {
-                    if !is_authorized { return; }
-                    let _ = proxy.send_event(BrowserEvent::ZoomIn);
-                }
-                "zoom_out" => {
-                    if !is_authorized { return; }
-                    let _ = proxy.send_event(BrowserEvent::ZoomOut);
-                }
-                "zoom_reset" => {
-                    if !is_authorized { return; }
-                    let _ = proxy.send_event(BrowserEvent::ZoomReset);
-                }
-                "toggle_fullscreen" => {
-                    if !is_authorized { return; }
-                    let _ = proxy.send_event(BrowserEvent::ToggleFullscreen);
-                }
-                "next_tab" => {
-                    if !is_authorized { return; }
-                    let _ = proxy.send_event(BrowserEvent::NextTab);
-                }
-                "prev_tab" => {
-                    if !is_authorized { return; }
-                    let _ = proxy.send_event(BrowserEvent::PrevTab);
-                }
-                "switch_tab_index" => {
-                    if !is_authorized { return; }
-                    if let Some(idx) = payload.index {
-                        let _ = proxy.send_event(BrowserEvent::SwitchTabIndex(idx));
-                    }
-                }
-                "import_data" => {
-                    if !is_internal {
-                        warn!("Security: rejected unauthorized import_data from external web content");
-                        return;
-                    }
-                    let target = payload.target.unwrap_or_else(|| "google-chrome".to_string());
-                    let _ = proxy.send_event(BrowserEvent::ImportData(target));
-                }
-                "open_gemini" => {
-                    if !is_authorized { return; }
-                    let _ = proxy.send_event(BrowserEvent::OpenGemini);
-                }
-                "google_login" => {
-                    if !is_internal {
-                        warn!("Security: rejected unauthorized google_login from external web content");
-                        return;
-                    }
-                    let _ = proxy.send_event(BrowserEvent::OpenGoogleLogin);
-                }
-                "toggle_window_controls" => {
-                    if !is_internal {
-                        warn!("Security: rejected toggle_window_controls from external web content");
-                        return;
-                    }
-                    let _ = proxy.send_event(BrowserEvent::ToggleWindowControls);
-                }
-                "toggle_tab_close" => {
-                    if !is_internal {
-                        warn!("Security: rejected toggle_tab_close from external web content");
-                        return;
-                    }
-                    let _ = proxy.send_event(BrowserEvent::ToggleTabCloseButtons);
-                }
-                "toggle_decorations" => {
-                    if !is_internal {
-                        warn!("Security: rejected toggle_decorations from external web content");
-                        return;
-                    }
-                    let _ = proxy.send_event(BrowserEvent::ToggleDecorations);
-                }
-                "reopen_closed_tab" => {
-                    if !is_authorized { return; }
-                    let _ = proxy.send_event(BrowserEvent::ReopenClosedTab);
-                }
-                "set_language" => {
-                    if !is_internal {
-                        warn!("Security: rejected set_language from external web content");
-                        return;
-                    }
-                    if let Some(target) = payload.target {
-                        let _ = proxy.send_event(BrowserEvent::SetLanguage(target));
-                    }
-                }
-                "minimize_window" => {
-                    if !is_internal { return; }
-                    let _ = proxy.send_event(BrowserEvent::MinimizeWindow);
-                }
-                "maximize_window" => {
-                    if !is_internal { return; }
-                    let _ = proxy.send_event(BrowserEvent::MaximizeWindow);
-                }
-                "close_window" => {
-                    if !is_internal { return; }
-                    let _ = proxy.send_event(BrowserEvent::CloseWindow);
-                }
-                _ => {}
+                Some(BrowserEvent::Navigate(url))
             }
+            "open_history" => {
+                if !is_authorized {
+                    warn!("Security: rejected unauthorized open_history");
+                    return None;
+                }
+                Some(BrowserEvent::Navigate("valorex://history".into()))
+            }
+            "open_bookmarks" => {
+                if !is_authorized {
+                    warn!("Security: rejected unauthorized open_bookmarks");
+                    return None;
+                }
+                Some(BrowserEvent::Navigate("valorex://bookmarks".into()))
+            }
+            "open_downloads" => {
+                if !is_authorized {
+                    warn!("Security: rejected unauthorized open_downloads");
+                    return None;
+                }
+                Some(BrowserEvent::Navigate("valorex://downloads".into()))
+            }
+            "clear_history" => {
+                if !is_internal {
+                    warn!("Security: rejected unauthorized clear_history from external web content");
+                    return None;
+                }
+                Some(BrowserEvent::ClearHistory)
+            }
+            "delete_bookmark" => {
+                if !is_internal {
+                    warn!("Security: rejected unauthorized delete_bookmark from external web content");
+                    return None;
+                }
+                payload.id.map(BrowserEvent::DeleteBookmark)
+            }
+            "new_tab" => {
+                if !is_authorized {
+                    warn!("Security: rejected unauthorized new_tab from external web content");
+                    return None;
+                }
+                Some(BrowserEvent::NewTab("valorex://newtab".into()))
+            }
+            "close_tab" => {
+                if !is_authorized {
+                    warn!("Security: rejected unauthorized close_tab from external web content");
+                    return None;
+                }
+                Some(BrowserEvent::CloseTab(payload.id.unwrap_or(0) as usize))
+            }
+            "reload" => {
+                if !is_authorized {
+                    warn!("Security: rejected unauthorized reload from external web content");
+                    return None;
+                }
+                Some(BrowserEvent::Reload)
+            }
+            "zoom_in" => {
+                if !is_authorized { return None; }
+                Some(BrowserEvent::ZoomIn)
+            }
+            "zoom_out" => {
+                if !is_authorized { return None; }
+                Some(BrowserEvent::ZoomOut)
+            }
+            "zoom_reset" => {
+                if !is_authorized { return None; }
+                Some(BrowserEvent::ZoomReset)
+            }
+            "toggle_fullscreen" => {
+                if !is_authorized { return None; }
+                Some(BrowserEvent::ToggleFullscreen)
+            }
+            "next_tab" => {
+                if !is_authorized { return None; }
+                Some(BrowserEvent::NextTab)
+            }
+            "prev_tab" => {
+                if !is_authorized { return None; }
+                Some(BrowserEvent::PrevTab)
+            }
+            "switch_tab_index" => {
+                if !is_authorized { return None; }
+                payload.index.map(BrowserEvent::SwitchTabIndex)
+            }
+            "import_data" => {
+                if !is_internal {
+                    warn!("Security: rejected unauthorized import_data from external web content");
+                    return None;
+                }
+                let target = payload.target.unwrap_or_else(|| "google-chrome".to_string());
+                Some(BrowserEvent::ImportData(target))
+            }
+            "open_gemini" => {
+                if !is_authorized { return None; }
+                Some(BrowserEvent::OpenGemini)
+            }
+            "google_login" => {
+                if !is_internal {
+                    warn!("Security: rejected unauthorized google_login from external web content");
+                    return None;
+                }
+                Some(BrowserEvent::OpenGoogleLogin)
+            }
+            "toggle_window_controls" => {
+                if !is_internal {
+                    warn!("Security: rejected toggle_window_controls from external web content");
+                    return None;
+                }
+                Some(BrowserEvent::ToggleWindowControls)
+            }
+            "toggle_tab_close" => {
+                if !is_internal {
+                    warn!("Security: rejected toggle_tab_close from external web content");
+                    return None;
+                }
+                Some(BrowserEvent::ToggleTabCloseButtons)
+            }
+            "toggle_decorations" => {
+                if !is_internal {
+                    warn!("Security: rejected toggle_decorations from external web content");
+                    return None;
+                }
+                Some(BrowserEvent::ToggleDecorations)
+            }
+            "reopen_closed_tab" => {
+                if !is_authorized { return None; }
+                Some(BrowserEvent::ReopenClosedTab)
+            }
+            "set_language" => {
+                if !is_internal {
+                    warn!("Security: rejected set_language from external web content");
+                    return None;
+                }
+                payload.target.map(BrowserEvent::SetLanguage)
+            }
+            "minimize_window" => {
+                if !is_internal { return None; }
+                Some(BrowserEvent::MinimizeWindow)
+            }
+            "maximize_window" => {
+                if !is_internal { return None; }
+                Some(BrowserEvent::MaximizeWindow)
+            }
+            "close_window" => {
+                if !is_internal { return None; }
+                Some(BrowserEvent::CloseWindow)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn dispatch_content_ipc_str(
+        msg: &str,
+        proxy: &EventLoopProxy<BrowserEvent>,
+        is_internal: bool,
+        secret_token: &str,
+    ) {
+        if let Some(event) = Self::authorize_and_parse_content_ipc(msg, is_internal, secret_token) {
+            let _ = proxy.send_event(event);
         }
     }
 
@@ -790,7 +804,9 @@ impl BrowserWindow {
                     tab.can_go_back = self.content_webview.can_go_back().unwrap_or(false);
                     tab.can_go_forward = self.content_webview.can_go_forward().unwrap_or(false);
                     // Record in history once when page load finishes
-                    let _ = self.storage.record_history(&url, &tab.title);
+                    if let Err(e) = self.storage.record_history(&url, &tab.title) {
+                        warn!("Failed to record history for {}: {}", url, e);
+                    }
                 }
 
                 // Inject cosmetic ad blocking CSS if available
@@ -808,7 +824,9 @@ impl BrowserWindow {
                 if let Some(tab) = self.tab_manager.active_tab_mut() {
                     tab.title = title.clone();
                     let url = tab.url.clone();
-                    let _ = self.storage.update_history_title(&url, &title);
+                    if let Err(e) = self.storage.update_history_title(&url, &title) {
+                        warn!("Failed to update history title for {}: {}", url, e);
+                    }
                 }
                 let _ = self.window.set_title(&format!("{} - Valorex", title));
                 self.sync_toolbar_state();
@@ -873,23 +891,31 @@ impl BrowserWindow {
                     let title = tab.title.clone();
                     if let Ok(is_bookmarked) = self.storage.is_bookmarked(&url) {
                         if is_bookmarked {
-                            let _ = self.storage.delete_bookmark_by_url(&url);
+                            if let Err(e) = self.storage.delete_bookmark_by_url(&url) {
+                                warn!("Failed to delete bookmark by url {}: {}", url, e);
+                            }
                         } else {
-                            let _ = self.storage.add_bookmark(&title, &url, None);
+                            if let Err(e) = self.storage.add_bookmark(&title, &url, None) {
+                                warn!("Failed to add bookmark {}: {}", url, e);
+                            }
                         }
                     }
                 }
                 self.sync_toolbar_state();
             }
             BrowserEvent::ClearHistory => {
-                let _ = self.storage.clear_history();
+                if let Err(e) = self.storage.clear_history() {
+                    warn!("Failed to clear history database: {}", e);
+                }
                 let _ = self.content_webview.clear_all_browsing_data();
                 self.tab_manager.clear_closed_tabs();
                 info!("Cleared browsing data, history, and closed tabs cache.");
                 self.sync_toolbar_state();
             }
             BrowserEvent::DeleteBookmark(id) => {
-                let _ = self.storage.delete_bookmark(id);
+                if let Err(e) = self.storage.delete_bookmark(id) {
+                    warn!("Failed to delete bookmark id {}: {}", id, e);
+                }
                 self.sync_toolbar_state();
             }
             BrowserEvent::ZoomIn => {
@@ -919,7 +945,9 @@ impl BrowserWindow {
                     .map(|f| f.to_string_lossy().to_string())
                     .unwrap_or_default();
                 let status = if success { "completed" } else { "failed" };
-                let _ = self.storage.record_download_with_status(filename, &url, &path_str, status);
+                if let Err(e) = self.storage.record_download_with_status(filename, &url, &path_str, status) {
+                    warn!("Failed to record download in storage: {}", e);
+                }
                 if success {
                     info!("Download completed successfully: {}", path_str);
                 } else {
@@ -1545,6 +1573,108 @@ mod tests {
         // Verify # and & are percent-encoded
         assert!(!symbol_res["https://www.google.com/search?q=".len()..].contains('&'));
         assert!(!symbol_res["https://www.google.com/search?q=".len()..].contains('#'));
+    }
+
+    #[test]
+    fn test_ipc_privilege_separation_external_rejected() {
+        let token = "test_secret_token_123456";
+
+        // Even with a valid token, external callers (is_internal = false) MUST be rejected for privileged admin actions
+        let clear_req = format!(r#"{{"action":"clear_history","token":"{}"}}"#, token);
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(&clear_req, false, token).is_none());
+
+        let del_bm_req = format!(r#"{{"action":"delete_bookmark","id":42,"token":"{}"}}"#, token);
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(&del_bm_req, false, token).is_none());
+
+        let import_req = format!(r#"{{"action":"import_data","target":"brave","token":"{}"}}"#, token);
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(&import_req, false, token).is_none());
+
+        let login_req = format!(r#"{{"action":"google_login","token":"{}"}}"#, token);
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(&login_req, false, token).is_none());
+
+        let lang_req = format!(r#"{{"action":"set_language","target":"en","token":"{}"}}"#, token);
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(&lang_req, false, token).is_none());
+    }
+
+    #[test]
+    fn test_ipc_privileged_internal_accepted() {
+        let token = "test_secret_token_123456";
+
+        // Internal caller (is_internal = true) is authorized for admin actions
+        let clear_req = r#"{"action":"clear_history"}"#;
+        match BrowserWindow::authorize_and_parse_content_ipc(clear_req, true, token) {
+            Some(BrowserEvent::ClearHistory) => {}
+            other => panic!("Expected ClearHistory event, got: {:?}", other),
+        }
+
+        let del_bm_req = r#"{"action":"delete_bookmark","id":42}"#;
+        match BrowserWindow::authorize_and_parse_content_ipc(del_bm_req, true, token) {
+            Some(BrowserEvent::DeleteBookmark(42)) => {}
+            other => panic!("Expected DeleteBookmark(42), got: {:?}", other),
+        }
+
+        let import_req = r#"{"action":"import_data","target":"firefox"}"#;
+        match BrowserWindow::authorize_and_parse_content_ipc(import_req, true, token) {
+            Some(BrowserEvent::ImportData(t)) => assert_eq!(t, "firefox"),
+            other => panic!("Expected ImportData(firefox), got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ipc_navigate_scheme_blocking() {
+        let token = "test_secret_token_123456";
+
+        // Dangerous / privileged schemes blocked for external callers
+        let dangerous_schemes = [
+            "file:///etc/passwd",
+            "FILE:///home/user/.ssh/id_rsa",
+            "valorex://history",
+            "VALOREX://bookmarks",
+            "valorex-action://%7B%22action%22%3A%22clear_history%22%7D",
+            "javascript:alert(document.cookie)",
+            "data:text/html,<h1>XSS</h1>",
+        ];
+
+        for url in dangerous_schemes {
+            let msg = format!(r#"{{"action":"navigate","url":"{}","token":"{}"}}"#, url, token);
+            assert!(
+                BrowserWindow::authorize_and_parse_content_ipc(&msg, false, token).is_none(),
+                "Expected navigation to '{}' from external origin to be blocked",
+                url
+            );
+        }
+
+        // Safe web navigation allowed with valid token
+        let safe_msg = format!(r#"{{"action":"navigate","url":"https://rust-lang.org","token":"{}"}}"#, token);
+        match BrowserWindow::authorize_and_parse_content_ipc(&safe_msg, false, token) {
+            Some(BrowserEvent::Navigate(u)) => assert_eq!(u, "https://rust-lang.org"),
+            other => panic!("Expected Navigate to https://rust-lang.org, got: {:?}", other),
+        }
+
+        // Internal caller navigating to valorex:// allowed
+        let internal_valorex_msg = r#"{"action":"navigate","url":"valorex://history"}"#;
+        match BrowserWindow::authorize_and_parse_content_ipc(internal_valorex_msg, true, token) {
+            Some(BrowserEvent::Navigate(u)) => assert_eq!(u, "valorex://history"),
+            other => panic!("Expected Navigate to valorex://history, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_ipc_token_validation() {
+        let token = "secret_valid_token_xyz";
+        let invalid_token = "attacker_fake_token_abc";
+
+        let new_tab_valid = format!(r#"{{"action":"new_tab","token":"{}"}}"#, token);
+        assert!(matches!(
+            BrowserWindow::authorize_and_parse_content_ipc(&new_tab_valid, false, token),
+            Some(BrowserEvent::NewTab(_))
+        ));
+
+        let new_tab_invalid = format!(r#"{{"action":"new_tab","token":"{}"}}"#, invalid_token);
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(&new_tab_invalid, false, token).is_none());
+
+        let new_tab_missing = r#"{"action":"new_tab"}"#;
+        assert!(BrowserWindow::authorize_and_parse_content_ipc(new_tab_missing, false, token).is_none());
     }
 }
 

@@ -13,6 +13,7 @@
   <a href="https://seotarek.github.io/valorex/"><img alt="Website" src="https://img.shields.io/badge/website-GitHub%20Pages-00d2ff?logo=githubpages&logoColor=white"></a>
   <a href="https://github.com/seotarek/valorex/releases"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0-00d2ff?logo=github&logoColor=white"></a>
   <a href="https://github.com/seotarek/valorex/actions/workflows/rust.yml"><img alt="Rust CI" src="https://github.com/seotarek/valorex/actions/workflows/rust.yml/badge.svg"></a>
+  <img alt="Tests" src="https://img.shields.io/badge/tests-43%20passing-10b981">
   <img alt="Built with Rust 2021" src="https://img.shields.io/badge/built%20with-Rust%202021-f97316?logo=rust&logoColor=white">
   <img alt="Engine" src="https://img.shields.io/badge/engine-WebKitGTK%20%2B%20Tao-6366f1">
   <img alt="Adblock" src="https://img.shields.io/badge/adblock-Brave%20Engine-fb542b?logo=brave&logoColor=white">
@@ -49,7 +50,7 @@
   - `valorex://bookmarks` — Hierarchical bookmarks library with instant search.
   - `valorex://downloads` — Real-time download manager with file path isolation.
   - `valorex://settings` — Visual customization (CSD toggle, tab close buttons, language switch, adblock dials).
-- **Gemini AI Quick Integration (مساعد Gemini الذكي):** Direct search and instant floating text-selection action bubble for search, summarization, and copy.
+- **Gemini Quick Access (الوصول السريع إلى Gemini):** Omnibox search routing and floating text-selection action bubble for instant Google search, copy, and Gemini query launch.
 
 ---
 
@@ -63,6 +64,8 @@
 | **Memory Safety (أمان الذاكرة)** | **100% Rust Ownership** | C++ (UAF risks) | Node.js + V8 |
 | **Adblock Engine (محرك الحجب)** | **Brave adblock-rust** | Extension required | Extension required |
 | **BiDi Arabic / English (الدعم العربي)** | **Native BiDi Isolated** | Generic | Generic |
+
+> **ملاحظة منهجية القياس (Benchmark Methodology Note):** تم قياس الأرقام محلياً في بيئة اختبار لينكس (Fedora/GNOME x86_64، ذاكرة خمول بصفحة واحدة فارغة عبر قياس Resident Set Size، وحجم الملف التنفيذي المجرد Stripped). قد تختلف النتائج العملية باختلاف عتاد الجهاز والتوزيعة وإصدار مكتبة WebKitGTK المثبتة.
 
 ---
 

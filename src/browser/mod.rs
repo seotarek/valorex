@@ -251,8 +251,23 @@ impl BrowserWindow {
         let secret_token = {
             use std::io::Read;
             let mut buf = [0u8; 16];
+            let mut filled = false;
             if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-                let _ = f.read_exact(&mut buf);
+                if f.read_exact(&mut buf).is_ok() {
+                    filled = true;
+                }
+            }
+            if !filled {
+                use std::time::SystemTime;
+                let nanos = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos();
+                let pid = std::process::id() as u128;
+                let addr = (&buf as *const _ as usize) as u128;
+                let seed = nanos ^ (pid << 32) ^ (addr << 64);
+                let seed_bytes = seed.to_le_bytes();
+                buf.copy_from_slice(&seed_bytes[..16]);
             }
             buf.iter().map(|b| format!("{:02x}", b)).collect::<String>()
         };
@@ -351,6 +366,7 @@ impl BrowserWindow {
                 }}
 
                 window.addEventListener('keydown', function(e) {{
+                    if (!e.isTrusted) return;
                     if (e.key === 'F11') {{
                         e.preventDefault();
                         sendContentIpc({{ action: 'toggle_fullscreen' }});
@@ -407,6 +423,7 @@ impl BrowserWindow {
                 // Floating Smart Action Bar on text selection
                 let selectionBar = null;
                 document.addEventListener('mouseup', function(e) {{
+                    if (!e.isTrusted) return;
                     const sel = window.getSelection();
                     const text = sel ? sel.toString().trim() : '';
                     if (text && text.length > 0) {{
@@ -417,9 +434,9 @@ impl BrowserWindow {
                             document.body.appendChild(selectionBar);
                         }}
                         selectionBar.innerHTML = `
-                            <button id="valorex-sel-search" style="background:#242731; border:none; color:#f0f2f5; padding:4px 8px; border-radius:5px; cursor:pointer;">🔍 Google</button>
-                            <button id="valorex-sel-gemini" style="background:rgba(168,85,247,0.25); border:1px solid #a855f7; color:#d8b4fe; padding:4px 8px; border-radius:5px; cursor:pointer;">✨ Ask Gemini</button>
-                            <button id="valorex-sel-copy" style="background:#242731; border:none; color:#f0f2f5; padding:4px 8px; border-radius:5px; cursor:pointer;">📋 Copy</button>
+                            <button id="valorex-sel-search" style="background:#242731; border:none; color:#f0f2f5; padding:4px 8px; border-radius:5px; cursor:pointer; display:flex; align-items:center; gap:4px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Google</button>
+                            <button id="valorex-sel-gemini" style="background:rgba(168,85,247,0.25); border:1px solid #a855f7; color:#d8b4fe; padding:4px 8px; border-radius:5px; cursor:pointer; display:flex; align-items:center; gap:4px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>Ask Gemini</button>
+                            <button id="valorex-sel-copy" style="background:#242731; border:none; color:#f0f2f5; padding:4px 8px; border-radius:5px; cursor:pointer; display:flex; align-items:center; gap:4px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
                         `;
                         const rect = sel.getRangeAt(0).getBoundingClientRect();
                         selectionBar.style.top = Math.max(10, rect.top - 40) + 'px';
@@ -481,18 +498,14 @@ impl BrowserWindow {
                 use std::sync::atomic::Ordering;
                 let uri = req.uri().to_string();
                 let current_lang = *shared_lang_for_proto.lock().unwrap_or_else(|e| e.into_inner());
-                let body = if uri.contains("newtab") {
-                    InternalPages::render_newtab(blocked_counter.load(Ordering::Relaxed), current_lang)
-                } else if uri.contains("history") {
-                    InternalPages::render_history(&storage_for_protocol, current_lang)
-                } else if uri.contains("bookmarks") {
-                    InternalPages::render_bookmarks(&storage_for_protocol, current_lang)
-                } else if uri.contains("downloads") {
-                    InternalPages::render_downloads(&storage_for_protocol, current_lang)
-                } else if uri.contains("settings") {
-                    InternalPages::render_settings(current_lang)
-                } else {
-                    InternalPages::render_newtab(0, current_lang)
+                let stripped = uri.trim_start_matches("valorex://");
+                let page = stripped.split(['/', '?', '#']).next().unwrap_or("newtab");
+                let body = match page {
+                    "history" => InternalPages::render_history(&storage_for_protocol, current_lang),
+                    "bookmarks" => InternalPages::render_bookmarks(&storage_for_protocol, current_lang),
+                    "downloads" => InternalPages::render_downloads(&storage_for_protocol, current_lang),
+                    "settings" => InternalPages::render_settings(current_lang),
+                    _ => InternalPages::render_newtab(blocked_counter.load(Ordering::Relaxed), current_lang),
                 };
 
                 http::Response::builder()
@@ -580,10 +593,14 @@ impl BrowserWindow {
 
             match payload.action.as_str() {
                 "navigate" => {
+                    if !is_authorized {
+                        warn!("Security: blocked unauthorized navigate IPC from external page");
+                        return;
+                    }
                     if let Some(url) = payload.url {
                         let trimmed_lower = url.trim().to_lowercase();
-                        if !is_authorized && (trimmed_lower.starts_with("file://") || trimmed_lower.starts_with("valorex://")) {
-                            warn!("Security: blocked privileged navigation from non-authorized origin: {}", url);
+                        if !is_internal && (trimmed_lower.starts_with("file://") || trimmed_lower.starts_with("valorex://")) {
+                            warn!("Security: blocked privileged navigation from non-internal origin: {}", url);
                             return;
                         }
                         let _ = proxy.send_event(BrowserEvent::Navigate(url));
@@ -867,7 +884,8 @@ impl BrowserWindow {
             BrowserEvent::ClearHistory => {
                 let _ = self.storage.clear_history();
                 let _ = self.content_webview.clear_all_browsing_data();
-                info!("Cleared browsing data and history.");
+                self.tab_manager.clear_closed_tabs();
+                info!("Cleared browsing data, history, and closed tabs cache.");
                 self.sync_toolbar_state();
             }
             BrowserEvent::DeleteBookmark(id) => {
@@ -1459,12 +1477,20 @@ impl BrowserWindow {
 
     pub fn resolve_url(raw: &str) -> String {
         let trimmed = raw.trim();
-        if trimmed.starts_with("valorex://") {
+        let trimmed_lower = trimmed.to_lowercase();
+        if trimmed_lower.starts_with("valorex://") {
             trimmed.to_string()
-        } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.starts_with("file://") {
+        } else if trimmed_lower.starts_with("http://") || trimmed_lower.starts_with("https://") || trimmed_lower.starts_with("file://") {
             trimmed.to_string()
+        } else if trimmed_lower == "localhost" || trimmed_lower.starts_with("localhost:") {
+            format!("http://{}", trimmed)
         } else if trimmed.contains('.') && !trimmed.contains(' ') {
-            format!("https://{}", trimmed)
+            if trimmed.starts_with('.') || trimmed.ends_with('.') {
+                let encoded: String = percent_encoding::utf8_percent_encode(trimmed, percent_encoding::NON_ALPHANUMERIC).to_string();
+                format!("https://www.google.com/search?q={}", encoded)
+            } else {
+                format!("https://{}", trimmed)
+            }
         } else {
             let encoded: String = percent_encoding::utf8_percent_encode(trimmed, percent_encoding::NON_ALPHANUMERIC).to_string();
             format!("https://www.google.com/search?q={}", encoded)
@@ -1488,6 +1514,14 @@ mod tests {
     fn test_resolve_url_domain() {
         assert_eq!(BrowserWindow::resolve_url("github.com"), "https://github.com");
         assert_eq!(BrowserWindow::resolve_url("crates.io"), "https://crates.io");
+    }
+
+    #[test]
+    fn test_resolve_url_localhost_and_casing() {
+        assert_eq!(BrowserWindow::resolve_url("localhost"), "http://localhost");
+        assert_eq!(BrowserWindow::resolve_url("localhost:3000"), "http://localhost:3000");
+        assert_eq!(BrowserWindow::resolve_url("HTTPS://EXAMPLE.COM"), "HTTPS://EXAMPLE.COM");
+        assert_eq!(BrowserWindow::resolve_url(".."), "https://www.google.com/search?q=%2E%2E");
     }
 
     #[test]

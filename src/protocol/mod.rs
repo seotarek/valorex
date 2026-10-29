@@ -598,17 +598,34 @@ impl InternalPages {
     }};
 
     // Browser Migration Trigger
+    const browserNames = {{
+      'google-chrome': 'Google Chrome',
+      'brave': 'Brave',
+      'firefox': 'Firefox',
+      'microsoft-edge': 'Microsoft Edge',
+      'chromium': 'Chromium'
+    }};
+
     function triggerImport(browser) {{
-      const msg = '{lang_code}' === 'ar' ? 'جاري استيراد البيانات من ' + browser + '...' : 'Importing data from ' + browser + '...';
+      const displayName = browserNames[browser] || browser;
+      const msg = '{lang_code}' === 'ar' ? 'جاري استيراد البيانات من ' + displayName + '...' : 'Importing data from ' + displayName + '...';
       showToast(msg);
       sendIpc('import_data', {{ target: browser }});
     }}
 
     window.valorexOnImportFinished = function(summary) {{
-      const msg = '{lang_code}' === 'ar' 
-        ? 'تم بنجاح استيراد ' + summary.bookmarks_imported + ' مفضلة و ' + summary.history_imported + ' رابط من ' + summary.browser_name
-        : 'Successfully imported ' + summary.bookmarks_imported + ' bookmarks and ' + summary.history_imported + ' history entries from ' + summary.browser_name;
-      showToast(msg);
+      const displayName = browserNames[summary.browser_name] || summary.browser_name;
+      if (summary.success) {{
+        const msg = '{lang_code}' === 'ar' 
+          ? 'تم بنجاح استيراد ' + summary.bookmarks_imported + ' مفضلة و ' + summary.history_imported + ' رابط من ' + displayName
+          : 'Successfully imported ' + summary.bookmarks_imported + ' bookmarks and ' + summary.history_imported + ' history entries from ' + displayName;
+        showToast(msg);
+      }} else {{
+        const msg = '{lang_code}' === 'ar'
+          ? 'تعذر استيراد البيانات من ' + displayName + ': ' + (summary.message || 'لم يتم العثور على بيانات')
+          : 'Failed to import from ' + displayName + ': ' + (summary.message || 'Profile not found');
+        showToast(msg);
+      }}
     }};
 
     function showToast(text) {{
@@ -810,12 +827,12 @@ impl InternalPages {
             let safe_href = sanitize_href(&item.url);
             let safe_title = escape_html(&item.title);
             list_html.push_str(&format!(
-                r#"<div class="bookmark-item">
-                    <span class="bookmark-icon">⭐</span>
+                r##"<div class="bookmark-item">
+                    <span class="bookmark-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="#fbbf24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></span>
                     <a href="{}" class="bookmark-title">{}</a>
                     <span class="bookmark-url">{}</span>
                     <button class="del-btn" onclick="deleteBookmark({})">{}</button>
-                </div>"#,
+                </div>"##,
                 safe_href, safe_title, safe_url, item.id, remove_label
             ));
         }
@@ -949,7 +966,7 @@ impl InternalPages {
             };
             list_html.push_str(&format!(
                 r#"<div class="download-item">
-                    <span class="file-icon">📥</span>
+                    <span class="file-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
                     <div class="file-info">
                       <div class="filename">{}</div>
                       <div class="filepath">{}</div>

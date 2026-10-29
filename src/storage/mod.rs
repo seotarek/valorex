@@ -72,8 +72,8 @@ impl StorageEngine {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute_batch(
             "
-            PRAGMA journal_mode = WAL;
             PRAGMA busy_timeout = 5000;
+            PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA foreign_keys = ON;
 
@@ -109,7 +109,8 @@ impl StorageEngine {
             );
 
             CREATE INDEX IF NOT EXISTS idx_history_time ON history(visit_time DESC);
-            CREATE INDEX IF NOT EXISTS idx_downloads_time ON downloads(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_bookmarks_folder ON bookmarks(folder);
+            CREATE INDEX IF NOT EXISTS idx_downloads_id ON downloads(id DESC);
             ",
         )?;
         Ok(())
@@ -158,7 +159,7 @@ impl StorageEngine {
         if entries.is_empty() {
             return Ok(0);
         }
-        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let tx = conn.transaction()?;
         let mut count = 0;
         {
@@ -186,14 +187,10 @@ impl StorageEngine {
         if url.trim().is_empty() || title.trim().is_empty() || url.starts_with("valorex://") {
             return Ok(());
         }
-        let now = Utc::now().to_rfc3339();
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute(
-            "INSERT INTO history (url, title, visit_time, visit_count)
-             VALUES (?1, ?2, ?3, 1)
-             ON CONFLICT(url) DO UPDATE SET
-                 title = CASE WHEN length(?2) > 0 THEN ?2 ELSE history.title END",
-            params![url, title, now],
+            "UPDATE history SET title = ?2 WHERE url = ?1",
+            params![url, title],
         )?;
         Ok(())
     }

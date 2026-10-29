@@ -49,6 +49,10 @@ impl BrowserImporter {
         let chromium_default = home.join(".config/chromium/Default");
         Self::check_chromium_browser(&mut results, "chromium", "Chromium", &chromium_default);
 
+        // 4. Microsoft Edge
+        let edge_default = home.join(".config/microsoft-edge/Default");
+        Self::check_chromium_browser(&mut results, "microsoft-edge", "Microsoft Edge", &edge_default);
+
         // 4. Mozilla Firefox
         let firefox_dir = home.join(".mozilla/firefox");
         if firefox_dir.is_dir() {
@@ -119,6 +123,9 @@ impl BrowserImporter {
         let mut bm_count = 0;
         let mut hist_count = 0;
 
+        let mut had_error = false;
+        let mut error_msg = String::new();
+
         if target.id == "firefox" {
             if let Some(places_path) = target.bookmarks_path {
                 match Self::import_firefox_places(Path::new(&places_path), storage) {
@@ -128,29 +135,55 @@ impl BrowserImporter {
                     }
                     Err(e) => {
                         error!("Failed to import from Firefox: {}", e);
+                        had_error = true;
+                        error_msg = format!("Firefox import failed: {}", e);
                     }
                 }
             }
         } else {
-            // Chromium-based browsers (Chrome, Brave, Chromium)
+            // Chromium-based browsers (Chrome, Brave, Chromium, Edge)
             if let Some(bm_path) = target.bookmarks_path {
                 match Self::import_chromium_bookmarks(Path::new(&bm_path), storage) {
                     Ok(count) => bm_count = count,
-                    Err(e) => warn!("Failed to import bookmarks from {}: {}", target.name, e),
+                    Err(e) => {
+                        warn!("Failed to import bookmarks from {}: {}", target.name, e);
+                        had_error = true;
+                        error_msg = format!("Bookmark import failed: {}", e);
+                    }
                 }
             }
 
             if let Some(hist_path) = target.history_path {
                 match Self::import_chromium_history(Path::new(&hist_path), storage, 2000) {
                     Ok(count) => hist_count = count,
-                    Err(e) => warn!("Failed to import history from {}: {}", target.name, e),
+                    Err(e) => {
+                        warn!("Failed to import history from {}: {}", target.name, e);
+                        had_error = true;
+                        if error_msg.is_empty() {
+                            error_msg = format!("History import failed: {}", e);
+                        }
+                    }
                 }
             }
         }
 
+        let success = !had_error || (bm_count > 0 || hist_count > 0);
+        let message = if success {
+            format!(
+                "Successfully imported {} bookmarks and {} history entries.",
+                bm_count, hist_count
+            )
+        } else {
+            if error_msg.is_empty() {
+                "No profile data found to import.".to_string()
+            } else {
+                error_msg
+            }
+        };
+
         info!(
-            "Successfully imported {} bookmarks and {} history items from {}",
-            bm_count, hist_count, target.name
+            "Import result for {}: success={}, bookmarks={}, history={}",
+            target.name, success, bm_count, hist_count
         );
 
         ImportSummary {
@@ -158,11 +191,8 @@ impl BrowserImporter {
             browser_name: target.name,
             bookmarks_imported: bm_count,
             history_imported: hist_count,
-            success: true,
-            message: format!(
-                "Successfully imported {} bookmarks and {} history entries.",
-                bm_count, hist_count
-            ),
+            success,
+            message,
         }
     }
 
@@ -222,7 +252,7 @@ impl BrowserImporter {
                     batch.push((title.to_string(), url.to_string(), current_folder.to_string()));
                 }
             } else if node_type == "folder" {
-                let sub_folder = node.get("name").and_then(|n| n.as_str()).unwrap_or(current_folder);
+                let sub_folder = node.get("name").and_then(|n| n.as_str()).unwrap_or("Folder");
                 let full_folder = format!("{}/{}", current_folder, sub_folder);
                 if let Some(children) = node.get("children").and_then(|c| c.as_array()) {
                     Self::collect_chromium_bookmarks(children, &full_folder, batch);
@@ -244,10 +274,6 @@ impl BrowserImporter {
         let wal_file = history_file.with_file_name(format!("{}-wal", hist_filename));
         if wal_file.exists() {
             let _ = fs::copy(&wal_file, temp_dir.path().join(format!("{}-wal", hist_filename)));
-        }
-        let shm_file = history_file.with_file_name(format!("{}-shm", hist_filename));
-        if shm_file.exists() {
-            let _ = fs::copy(&shm_file, temp_dir.path().join(format!("{}-shm", hist_filename)));
         }
 
         let count = {
@@ -306,10 +332,6 @@ impl BrowserImporter {
         let wal_file = places_file.with_file_name(format!("{}-wal", places_filename));
         if wal_file.exists() {
             let _ = fs::copy(&wal_file, temp_dir.path().join(format!("{}-wal", places_filename)));
-        }
-        let shm_file = places_file.with_file_name(format!("{}-shm", places_filename));
-        if shm_file.exists() {
-            let _ = fs::copy(&shm_file, temp_dir.path().join(format!("{}-shm", places_filename)));
         }
 
         let (bm_count, hist_count) = {

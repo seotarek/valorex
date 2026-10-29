@@ -203,7 +203,8 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     display: flex;
     align-items: stretch;
     height: 100%;
-    margin-inline-start: auto;
+    margin-left: auto;
+    direction: ltr;
     flex-shrink: 0;
   }
 
@@ -360,6 +361,11 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
 
   .address-input::placeholder {
     color: var(--text-secondary);
+  }
+
+  html[dir="rtl"] .address-input::placeholder {
+    direction: rtl;
+    text-align: right;
   }
 
   .bookmark-btn {
@@ -562,6 +568,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
       tabEl.ondblclick = (e) => {
         if (!e.target.closest('.tab-close')) {
           e.preventDefault();
+          e.stopPropagation();
           post({ action: 'maximize_window' });
         }
       };
@@ -615,7 +622,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
 
       const closeEl = document.createElement('div');
       closeEl.className = 'tab-close';
-      closeEl.title = isAr ? 'إغلاق علامة التبويب' : 'Close Tab (Ctrl+W)';
+      closeEl.title = isAr ? 'إغلاق علامة التبويب' : 'Close Tab';
       closeEl.innerHTML = '<svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg>';
       closeEl.onclick = (e) => {
         e.stopPropagation();
@@ -630,7 +637,19 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     });
   }
 
+  // Tabs Horizontal Scroll via Wheel
+  const tabsContainer = document.getElementById('tabs-container');
+  if (tabsContainer) {
+    tabsContainer.addEventListener('wheel', (e) => {
+      if (e.deltaY !== 0) {
+        e.preventDefault();
+        tabsContainer.scrollLeft += e.deltaY;
+      }
+    }, { passive: false });
+  }
+
   // Address Bar Navigation
+  let currentActiveUrl = '';
   const addressInput = document.getElementById('address-input');
   addressInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -639,7 +658,14 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
         post({ action: 'navigate', url: raw });
         addressInput.blur();
       }
+    } else if (e.key === 'Escape') {
+      addressInput.value = currentActiveUrl || '';
+      addressInput.blur();
     }
+  });
+
+  addressInput.addEventListener('focus', () => {
+    addressInput.select();
   });
 
   // Action Buttons
@@ -722,8 +748,11 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
 
   // Public update API called from Rust evaluate_script
   window.valorexUpdate = function(state) {
-    if (state.url !== undefined && document.activeElement !== addressInput) {
-      addressInput.value = state.url;
+    if (state.url !== undefined) {
+      currentActiveUrl = state.url;
+      if (document.activeElement !== addressInput) {
+        addressInput.value = state.url;
+      }
     }
     if (state.can_go_back !== undefined) {
       document.getElementById('back-btn').disabled = !state.can_go_back;

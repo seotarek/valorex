@@ -69,6 +69,10 @@ impl TabManager {
         }
     }
 
+    pub fn clear_closed_tabs(&mut self) {
+        self.closed_tabs.clear();
+    }
+
     pub fn duplicate_tab(&mut self, id: usize) -> Option<usize> {
         let original = self.tabs.iter().find(|t| t.id == id)?.clone();
         let new_id = self.next_id;
@@ -431,5 +435,7 @@ mod tests {
             manager.close_tab(id);
         }
         assert!(manager.closed_tabs.len() <= 50);
+        manager.clear_closed_tabs();
+        assert_eq!(manager.closed_tabs.len(), 0);
     }
 }

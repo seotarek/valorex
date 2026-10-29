@@ -27,7 +27,8 @@ impl FilterUpdater {
                 let path = entry.path();
                 if path.extension().and_then(|s| s.to_str()) == Some("txt") {
                     if let Ok(content) = fs::read_to_string(&path) {
-                        combined.push_str(&content);
+                        let clean = content.trim_start_matches('\u{feff}');
+                        combined.push_str(clean);
                         combined.push('\n');
                     }
                 }
@@ -51,16 +52,28 @@ impl FilterUpdater {
             info!("Fetching latest filter list from: {}", url);
             match client.get(url).send().await {
                 Ok(resp) if resp.status().is_success() => {
-                    let content = resp.text().await?;
-                    let trimmed = content.trim_start_matches('\u{feff}').trim_start();
+                    let content = match resp.text().await {
+                        Ok(t) => t,
+                        Err(e) => {
+                            warn!("Failed to read response body for {}: {}", filename, e);
+                            continue;
+                        }
+                    };
+                    let trimmed = content.trim_start_matches('\u{feff}');
                     if trimmed.len() < 10_000 || (!trimmed.starts_with("[Adblock Plus") && !trimmed.starts_with('!')) {
                         warn!("Downloaded filter {} is invalid or truncated ({} bytes), preserving existing rules", filename, content.len());
                         continue;
                     }
                     let target_path = self.rules_dir.join(filename);
                     let tmp_path = self.rules_dir.join(format!("{}.tmp", filename));
-                    fs::write(&tmp_path, &content)?;
-                    fs::rename(&tmp_path, &target_path)?;
+                    if let Err(e) = fs::write(&tmp_path, trimmed) {
+                        warn!("Failed to write tmp rules file {}: {}", filename, e);
+                        continue;
+                    }
+                    if let Err(e) = fs::rename(&tmp_path, &target_path) {
+                        warn!("Failed to rename tmp rules file {}: {}", filename, e);
+                        continue;
+                    }
                     info!("Successfully updated {}", filename);
                     updated += 1;
                 }

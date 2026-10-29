@@ -131,6 +131,25 @@ impl StorageEngine {
         Ok(())
     }
 
+    pub fn record_history_with_time(&self, url: &str, title: &str, visit_time: &str, visit_count: i64) -> Result<(), Box<dyn std::error::Error>> {
+        if url.trim().is_empty() || url.starts_with("valorex://") {
+            return Ok(());
+        }
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "
+            INSERT INTO history (url, title, visit_time, visit_count)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(url) DO UPDATE SET
+                title = CASE WHEN length(?2) > 0 THEN ?2 ELSE history.title END,
+                visit_time = ?3,
+                visit_count = MAX(history.visit_count, ?4)
+            ",
+            params![url, title, visit_time, visit_count],
+        )?;
+        Ok(())
+    }
+
     pub fn get_recent_history(&self, limit: usize) -> Result<Vec<HistoryEntry>, Box<dyn std::error::Error>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(

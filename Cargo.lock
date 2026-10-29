@@ -3179,6 +3179,7 @@ dependencies = [
  "env_logger",
  "gtk",
  "log",
+ "percent-encoding",
  "reqwest",
  "rusqlite",
  "serde",

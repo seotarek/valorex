@@ -15,6 +15,7 @@ pub struct TabManager {
     tabs: Vec<Tab>,
     active_id: usize,
     next_id: usize,
+    closed_tabs: Vec<String>,
 }
 
 impl Default for TabManager {
@@ -38,6 +39,7 @@ impl TabManager {
             tabs: vec![initial_tab],
             active_id: 1,
             next_id: 2,
+            closed_tabs: Vec::new(),
         }
     }
 
@@ -107,9 +109,37 @@ impl TabManager {
 
     pub fn close_other_tabs(&mut self, keep_id: usize) {
         if self.tabs.iter().any(|t| t.id == keep_id) {
+            for tab in &self.tabs {
+                if tab.id != keep_id && !tab.is_pinned && tab.url != "valorex://newtab" {
+                    self.closed_tabs.push(tab.url.clone());
+                }
+            }
             self.tabs.retain(|t| t.id == keep_id || t.is_pinned);
             self.active_id = keep_id;
         }
+    }
+
+    pub fn close_tabs_to_right(&mut self, id: usize) {
+        if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
+            let mut i = self.tabs.len();
+            while i > pos + 1 {
+                i -= 1;
+                if !self.tabs[i].is_pinned {
+                    let removed = self.tabs.remove(i);
+                    if removed.url != "valorex://newtab" {
+                        self.closed_tabs.push(removed.url);
+                    }
+                }
+            }
+            if !self.tabs.iter().any(|t| t.id == self.active_id) {
+                self.active_id = id;
+            }
+        }
+    }
+
+    pub fn reopen_closed_tab(&mut self) -> Option<usize> {
+        let url = self.closed_tabs.pop()?;
+        Some(self.new_tab(&url))
     }
 
     pub fn reorder_tabs(&mut self, from_id: usize, to_id: usize) {
@@ -162,6 +192,9 @@ impl TabManager {
         if self.tabs.len() <= 1 {
             // Keep at least one tab open
             if let Some(tab) = self.tabs.first_mut() {
+                if tab.url != "valorex://newtab" {
+                    self.closed_tabs.push(tab.url.clone());
+                }
                 tab.title = "New Tab".to_string();
                 tab.url = "valorex://newtab".to_string();
                 tab.blocked_count = 0;
@@ -171,7 +204,10 @@ impl TabManager {
         }
 
         if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
-            self.tabs.remove(pos);
+            let removed = self.tabs.remove(pos);
+            if removed.url != "valorex://newtab" {
+                self.closed_tabs.push(removed.url);
+            }
             if self.active_id == id {
                 let new_active_index = if pos >= self.tabs.len() {
                     self.tabs.len() - 1
@@ -327,5 +363,21 @@ mod tests {
 
         manager.switch_to_index(0);
         assert_eq!(manager.active_id(), 1);
+    }
+
+    #[test]
+    fn test_close_tabs_to_right_and_reopen() {
+        let mut manager = TabManager::new("https://tab1.com");
+        let t2 = manager.new_tab("https://tab2.com");
+        let _t3 = manager.new_tab("https://tab3.com");
+        assert_eq!(manager.tabs().len(), 3);
+
+        manager.close_tabs_to_right(t2);
+        assert_eq!(manager.tabs().len(), 2);
+
+        let reopened = manager.reopen_closed_tab().expect("Expected reopened tab");
+        assert_eq!(manager.tabs().len(), 3);
+        assert_eq!(manager.tabs().last().unwrap().id, reopened);
+        assert_eq!(manager.tabs().last().unwrap().url, "https://tab3.com");
     }
 }

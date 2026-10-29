@@ -163,6 +163,10 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     color: #ffffff;
   }
 
+  body.hide-tab-close .tab-close {
+    display: none !important;
+  }
+
   .new-tab-btn {
     width: 28px;
     height: 28px;
@@ -277,6 +281,28 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     width: 16px;
     height: 16px;
     fill: currentColor;
+  }
+
+  .icon-btn.ai-btn {
+    color: #c084fc;
+    transition: color 0.15s, background 0.15s, transform 0.15s;
+  }
+
+  .icon-btn.ai-btn:hover {
+    background: rgba(168, 85, 247, 0.22);
+    color: #f3e8ff;
+    transform: scale(1.05);
+  }
+
+  .icon-btn.profile-btn {
+    color: #93c5fd;
+    transition: color 0.15s, background 0.15s, transform 0.15s;
+  }
+
+  .icon-btn.profile-btn:hover {
+    background: rgba(59, 130, 246, 0.22);
+    color: #dbeafe;
+    transform: scale(1.05);
   }
 
   /* --- Address Bar (Omnibox) --- */
@@ -449,6 +475,16 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
       <span id="shield-count">0</span>
     </button>
 
+    <!-- Gemini AI Assistant Button -->
+    <button class="icon-btn ai-btn" id="gemini-btn" title="Gemini AI Copilot (مساعد جمناي الذكي)">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>
+    </button>
+
+    <!-- Google Profile Button -->
+    <button class="icon-btn profile-btn" id="profile-btn" title="Google Account & Gmail (حساب جوجل وجيميل)">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+    </button>
+
     <!-- Menu Button (3 dots) -->
     <button class="icon-btn" id="menu-btn" title="Valorex Menu">
       <svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
@@ -461,8 +497,11 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   ];
 
   function post(msg) {
-    if (window.ipc) {
-      window.ipc.postMessage(JSON.stringify(msg));
+    const jsonStr = typeof msg === 'string' ? msg : JSON.stringify(msg);
+    if (window.ipc && typeof window.ipc.postMessage === 'function') {
+      window.ipc.postMessage(jsonStr);
+    } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc) {
+      window.webkit.messageHandlers.ipc.postMessage(jsonStr);
     }
   }
 
@@ -499,10 +538,24 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
         }
       };
 
+      tabEl.ondblclick = (e) => {
+        if (!e.target.closest('.tab-close')) {
+          e.preventDefault();
+          post({ action: 'maximize_window' });
+        }
+      };
+
+      tabEl.onauxclick = (e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          post({ action: 'close_tab', id: tab.id });
+        }
+      };
+
       tabEl.oncontextmenu = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        post({ action: 'open_tab_context', id: tab.id });
+        post({ action: 'open_tab_context', id: tab.id, x: Math.round(e.clientX), y: Math.round(e.clientY) });
       };
 
       // Drag and drop reordering
@@ -567,8 +620,10 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   document.getElementById('new-tab-btn').onclick = () => post({ action: 'new_tab', url: 'valorex://newtab' });
   document.getElementById('bookmark-btn').onclick = () => post({ action: 'toggle_bookmark' });
 
-  // Native Menus
+  // Native Menus & Services
   document.getElementById('shield-btn').onclick = () => post({ action: 'open_shield_menu' });
+  document.getElementById('gemini-btn').onclick = () => post({ action: 'open_gemini' });
+  document.getElementById('profile-btn').onclick = () => post({ action: 'google_login' });
   document.getElementById('menu-btn').onclick = () => post({ action: 'open_menu' });
 
   // Window Controls
@@ -576,13 +631,45 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   document.getElementById('win-max').onclick = () => post({ action: 'maximize_window' });
   document.getElementById('win-close').onclick = () => post({ action: 'close_window' });
 
-  // Window Dragging & Maximize on Tab Bar
+  // Window Dragging & Maximize on Tab Bar with Threshold Tracking
+  let dragStartX = 0, dragStartY = 0, isMouseDown = false;
+  const DRAG_THRESHOLD = 5;
+
+  const headerEl = document.querySelector('.window-header');
   const dragSpacer = document.getElementById('tab-drag-spacer');
+
   dragSpacer.addEventListener('mousedown', (e) => {
-    if (e.button === 0) post({ action: 'drag_window' });
+    if (e.button === 0) {
+      isMouseDown = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+    }
   });
-  dragSpacer.addEventListener('dblclick', () => {
+
+  window.addEventListener('mousemove', (e) => {
+    if (isMouseDown) {
+      const dx = Math.abs(e.clientX - dragStartX);
+      const dy = Math.abs(e.clientY - dragStartY);
+      if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+        isMouseDown = false;
+        post({ action: 'drag_window' });
+      }
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    isMouseDown = false;
+  });
+
+  // Double click anywhere on empty header space or spacer to maximize/restore
+  headerEl.addEventListener('dblclick', (e) => {
+    if (e.target.closest('button') || e.target.closest('.tab-close') || e.target.closest('input')) return;
     post({ action: 'maximize_window' });
+  });
+
+  dragSpacer.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    post({ action: 'open_tab_bar_context', x: Math.round(e.clientX), y: Math.round(e.clientY) });
   });
 
   // Keyboard navigation within chrome
@@ -625,10 +712,51 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     }
     if (state.decorations_enabled !== undefined) {
       const controls = document.getElementById('window-controls');
-      if (controls) controls.style.display = state.decorations_enabled ? 'none' : 'flex';
+      if (controls) controls.style.display = (state.decorations_enabled || state.show_window_controls === false) ? 'none' : 'flex';
+    }
+    if (state.show_window_controls !== undefined) {
+      const controls = document.getElementById('window-controls');
+      if (controls) controls.style.display = (state.decorations_enabled || !state.show_window_controls) ? 'none' : 'flex';
+      const tc = document.getElementById('tabs-container');
+      if (tc) tc.style.maxWidth = state.show_window_controls ? 'calc(100% - 150px)' : '100%';
+    }
+    if (state.show_tab_close_buttons !== undefined) {
+      document.body.classList.toggle('hide-tab-close', !state.show_tab_close_buttons);
     }
     if (state.is_maximized !== undefined) {
       updateMaximizeState(state.is_maximized);
+    }
+    if (state.language !== undefined) {
+      const isAr = state.language === 'ar';
+      document.documentElement.lang = isAr ? 'ar' : 'en';
+      document.documentElement.dir = isAr ? 'rtl' : 'ltr';
+      
+      const newTabBtn = document.getElementById('new-tab-btn');
+      if (newTabBtn) newTabBtn.title = isAr ? 'علامة تبويب جديدة (Ctrl+T)' : 'New Tab (Ctrl+T)';
+      const winMin = document.getElementById('win-min');
+      if (winMin) winMin.title = isAr ? 'تصغير النافذة' : 'Minimize';
+      const winClose = document.getElementById('win-close');
+      if (winClose) winClose.title = isAr ? 'إغلاق النافذة' : 'Close';
+      const backBtn = document.getElementById('back-btn');
+      if (backBtn) backBtn.title = isAr ? 'الرجوع للصفحة السابقة (Alt+Left)' : 'Click to go back (Alt+Left)';
+      const forwardBtn = document.getElementById('forward-btn');
+      if (forwardBtn) forwardBtn.title = isAr ? 'التقدم للصفحة التالية (Alt+Right)' : 'Click to go forward (Alt+Right)';
+      const reloadBtn = document.getElementById('reload-btn');
+      if (reloadBtn) reloadBtn.title = isAr ? 'إعادة تحميل الصفحة (Ctrl+R)' : 'Reload this page (Ctrl+R / F5)';
+      const homeBtn = document.getElementById('home-btn');
+      if (homeBtn) homeBtn.title = isAr ? 'الصفحة الرئيسية' : 'Open Home Page';
+      const addressInput = document.getElementById('address-input');
+      if (addressInput) addressInput.placeholder = isAr ? 'ابحث باستخدام Google أو أدخل رابط موقع...' : 'Search with Google or enter web address...';
+      const bookmarkBtn = document.getElementById('bookmark-btn');
+      if (bookmarkBtn) bookmarkBtn.title = isAr ? 'إضافة إلى المفضلة' : 'Bookmark this tab';
+      const shieldBtn = document.getElementById('shield-btn');
+      if (shieldBtn) shieldBtn.title = isAr ? 'درع Valorex لحجب الإعلانات والمتتبعات' : 'Valorex Privacy Shield';
+      const geminiBtn = document.getElementById('gemini-btn');
+      if (geminiBtn) geminiBtn.title = isAr ? 'مساعد Gemini الذكي' : 'Gemini AI Copilot';
+      const profileBtn = document.getElementById('profile-btn');
+      if (profileBtn) profileBtn.title = isAr ? 'حساب Google و Gmail' : 'Google Account & Gmail';
+      const menuBtn = document.getElementById('menu-btn');
+      if (menuBtn) menuBtn.title = isAr ? 'قائمة Valorex' : 'Valorex Menu';
     }
     if (state.tabs) {
       tabsState = state.tabs;

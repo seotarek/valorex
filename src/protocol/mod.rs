@@ -1,225 +1,643 @@
+use crate::i18n::Language;
 use crate::storage::StorageEngine;
 
 pub struct InternalPages;
 
 impl InternalPages {
-    pub fn render_newtab(blocked_total: u64) -> String {
+    pub fn render_newtab(blocked_total: u64, lang: Language) -> String {
+        let bw_saved = ((blocked_total as f64) * 0.08).round() as u64;
+        let time_saved = ((blocked_total as f64) * 0.04).round() as u64;
+
+        let is_ar = lang.is_rtl();
+        let dir = lang.direction();
+        let lang_code = lang.code();
+
+        let (greetings_title, search_placeholder, ads_label, bw_label, time_label, migration_title, migration_desc, import_chrome_btn, import_brave_btn, _shortcuts_heading) = if is_ar {
+            (
+                "أهلاً بك في Valorex",
+                "ابحث باستخدام Google أو اسأل Gemini الذكي...",
+                "عنصر ضار محجوب",
+                "ميجابايت تم توفيرها",
+                "ثانية تم توفيرها",
+                "استيراد الإشارات وسجل التصفح بنقرة واحدة",
+                "انقل بياناتك ومفضلاتك من متصفحك السابق مباشرة إلى Valorex.",
+                "استيراد Chrome",
+                "استيراد Brave",
+                "المواقع الأكثر زيارة"
+            )
+        } else {
+            (
+                "Welcome to Valorex",
+                "Search with Google or ask Gemini AI...",
+                "Trackers & Ads Blocked",
+                "Bandwidth Saved",
+                "Estimated Time Saved",
+                "One-Click Browser Data Migration",
+                "Import your bookmarks and history from your previous browser into Valorex.",
+                "Import Chrome",
+                "Import Brave",
+                "Frequently Visited"
+            )
+        };
+
         format!(
-            r#"<!DOCTYPE html>
-<html lang="en">
+            r###"<!DOCTYPE html>
+<html lang="{lang_code}" dir="{dir}">
 <head>
 <meta charset="utf-8">
-<title>New Tab - Valorex</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Valorex 2027</title>
 <style>
   :root {{
-    --bg: #0f1012;
-    --card-bg: #1a1b1f;
-    --card-border: #282a30;
-    --accent: #00d2ff;
-    --text-primary: #f3f4f6;
-    --text-secondary: #9ca3af;
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --bg-deep: #0a0b0e;
+    --card-surface: rgba(22, 24, 30, 0.78);
+    --card-border: rgba(255, 255, 255, 0.08);
+    --card-glow: rgba(0, 210, 255, 0.15);
+    --accent-cyan: #00d2ff;
+    --accent-orange: #ff5500;
+    --accent-gemini: #a855f7;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Cairo", "Tajawal", sans-serif;
   }}
+
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
   body {{
-    background: radial-gradient(circle at 50% 20%, #171920 0%, var(--bg) 80%);
+    background-color: var(--bg-deep);
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(0, 210, 255, 0.09) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(255, 85, 0, 0.07) 0px, transparent 50%),
+      radial-gradient(at 50% 50%, rgba(15, 17, 23, 0.95) 0px, var(--bg-deep) 100%);
     color: var(--text-primary);
     font-family: var(--font);
     min-height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 40px 20px;
+    justify-content: flex-start;
+    padding: 30px 20px 40px;
+    overflow-x: hidden;
   }}
-  .logo {{
-    font-size: 42px;
-    font-weight: 800;
-    letter-spacing: -1px;
-    background: linear-gradient(135deg, #00d2ff 0%, #ff5500 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 8px;
-  }}
-  .tagline {{
-    color: var(--text-secondary);
-    font-size: 14px;
-    margin-bottom: 30px;
-  }}
-  .stats-card {{
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: 16px;
-    padding: 16px 32px;
+
+  /* Top Hero Clock & Header */
+  .hero-header {{
     display: flex;
-    gap: 40px;
-    margin-bottom: 36px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-  }}
-  .stat-item {{
+    flex-direction: column;
+    align-items: center;
+    margin-top: 15px;
+    margin-bottom: 25px;
     text-align: center;
   }}
-  .stat-num {{
-    font-size: 28px;
+
+  .clock {{
+    font-size: 54px;
     font-weight: 700;
-    color: var(--accent);
+    letter-spacing: -1.5px;
+    color: #ffffff;
+    text-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
   }}
-  .stat-label {{
-    font-size: 12px;
+
+  .date-string {{
+    font-size: 13px;
     color: var(--text-secondary);
-    text-transform: uppercase;
+    font-weight: 500;
     letter-spacing: 0.5px;
-    margin-top: 4px;
+    margin-top: 2px;
   }}
-  .search-box {{
+
+  .greeting {{
+    font-size: 15px;
+    color: var(--accent-cyan);
+    font-weight: 600;
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }}
+
+  /* Shields Live Telemetry Strip */
+  .telemetry-strip {{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
     width: 100%;
-    max-width: 580px;
-    margin-bottom: 40px;
+    max-width: 660px;
+    margin-bottom: 28px;
+  }}
+
+  .stat-card {{
+    background: var(--card-surface);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease, border-color 0.2s ease;
+  }}
+
+  .stat-card:hover {{
+    transform: translateY(-2px);
+    border-color: rgba(0, 210, 255, 0.3);
+  }}
+
+  .stat-header {{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }}
+
+  .stat-value {{
+    font-size: 24px;
+    font-weight: 700;
+    margin-top: 6px;
+    color: #ffffff;
+  }}
+
+  .stat-value.cyan {{ color: var(--accent-cyan); text-shadow: 0 0 16px rgba(0, 210, 255, 0.4); }}
+  .stat-value.orange {{ color: var(--accent-orange); text-shadow: 0 0 16px rgba(255, 85, 0, 0.4); }}
+  .stat-value.purple {{ color: var(--accent-gemini); text-shadow: 0 0 16px rgba(168, 85, 247, 0.4); }}
+
+  /* Universal Search Box */
+  .search-container {{
+    width: 100%;
+    max-width: 660px;
+    margin-bottom: 26px;
     position: relative;
   }}
-  .search-input {{
+
+  .search-bar {{
     width: 100%;
-    height: 50px;
-    background: var(--card-bg);
+    background: rgba(24, 26, 34, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border: 1px solid var(--card-border);
-    border-radius: 25px;
-    padding: 0 24px;
+    border-radius: 28px;
+    padding: 6px 14px 6px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    transition: border-color 0.25s, box-shadow 0.25s;
+  }}
+
+  .search-bar:focus-within {{
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 0 3px rgba(0, 210, 255, 0.2), 0 12px 35px rgba(0, 0, 0, 0.6);
+  }}
+
+  .search-icon {{
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }}
+
+  .search-input {{
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
     color: var(--text-primary);
     font-size: 15px;
-    outline: none;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit;
   }}
-  .search-input:focus {{
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(0, 210, 255, 0.2);
+
+  .search-input::placeholder {{
+    color: #64748b;
   }}
-  .shortcuts-grid {{
+
+  .ai-mode-toggle {{
+    background: rgba(168, 85, 247, 0.15);
+    border: 1px solid rgba(168, 85, 247, 0.35);
+    color: #d8b4fe;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 20px;
     display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-    justify-content: center;
-    max-width: 600px;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s;
+    user-select: none;
   }}
-  .shortcut {{
-    width: 90px;
+
+  .ai-mode-toggle:hover {{
+    background: rgba(168, 85, 247, 0.28);
+    transform: scale(1.03);
+  }}
+
+  .ai-mode-toggle.active {{
+    background: linear-gradient(135deg, #a855f7, #6366f1);
+    color: #ffffff;
+    border-color: transparent;
+    box-shadow: 0 0 14px rgba(168, 85, 247, 0.4);
+  }}
+
+  /* One-Click Browser Data Migration Card */
+  .migration-banner {{
+    width: 100%;
+    max-width: 660px;
+    background: linear-gradient(135deg, rgba(28, 30, 38, 0.85), rgba(18, 20, 26, 0.95));
+    border: 1px solid rgba(0, 210, 255, 0.2);
+    border-radius: 16px;
+    padding: 16px 20px;
+    margin-bottom: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+  }}
+
+  .migration-info {{
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }}
+
+  .migration-title {{
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }}
+
+  .migration-desc {{
+    font-size: 11px;
+    color: var(--text-secondary);
+  }}
+
+  .migration-actions {{
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }}
+
+  .migrate-btn {{
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: var(--text-primary);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }}
+
+  .migrate-btn:hover {{
+    background: rgba(0, 210, 255, 0.18);
+    border-color: var(--accent-cyan);
+    transform: translateY(-1px);
+  }}
+
+  .migrate-btn svg {{
+    width: 13px;
+    height: 13px;
+    fill: currentColor;
+  }}
+
+  /* Curated 2027 Bookmarks & Shortcuts Grid */
+  .shortcuts-grid {{
+    width: 100%;
+    max-width: 660px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }}
+
+  .shortcut-card {{
+    background: var(--card-surface);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--card-border);
+    border-radius: 14px;
+    padding: 16px 12px;
     display: flex;
     flex-direction: column;
     align-items: center;
     text-decoration: none;
     color: var(--text-primary);
-    padding: 12px 8px;
-    border-radius: 12px;
-    background: var(--card-bg);
-    border: 1px solid transparent;
-    transition: transform 0.15s, border-color 0.15s, background-color 0.15s;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }}
-  .shortcut:hover {{
+
+  .shortcut-card:hover {{
     transform: translateY(-3px);
-    border-color: var(--card-border);
-    background: #22242a;
+    background: rgba(30, 34, 44, 0.9);
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
   }}
-  .shortcut-icon {{
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    background: #2a2c34;
+
+  .shortcut-icon-wrap {{
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
+    transition: transform 0.2s;
   }}
+
+  .shortcut-card:hover .shortcut-icon-wrap {{
+    transform: scale(1.08);
+  }}
+
   .shortcut-title {{
     font-size: 12px;
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    width: 100%;
+    font-weight: 500;
+    color: var(--text-primary);
+  }}
+
+  /* Status Notification Toast */
+  .status-toast {{
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(20, 22, 28, 0.95);
+    border: 1px solid var(--accent-cyan);
+    color: #ffffff;
+    padding: 10px 22px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+    z-index: 1000;
   }}
 </style>
 </head>
 <body>
-  <div class="logo">VALOREX</div>
-  <div class="tagline">The Fast, Private & Ad-Free Rust Browser</div>
 
-  <div class="stats-card">
-    <div class="stat-item">
-      <div class="stat-num">{}</div>
-      <div class="stat-label">Trackers Blocked</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-num">100%</div>
-      <div class="stat-label">Memory Safe</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-num">0 ms</div>
-      <div class="stat-label">Telemetry Latency</div>
+  <!-- Top Hero Clock & Header -->
+  <div class="hero-header">
+    <div class="clock" id="live-clock">--:--</div>
+    <div class="date-string" id="live-date">...</div>
+    <div class="greeting">
+      <span>{greetings_title}</span>
     </div>
   </div>
 
-  <div class="search-box">
-    <form action="https://www.google.com/search" method="GET">
-      <input type="text" name="q" class="search-input" placeholder="Search Google or type a URL..." autofocus>
+  <!-- Shields Live Telemetry Strip -->
+  <div class="telemetry-strip">
+    <div class="stat-card">
+      <div class="stat-header">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" color="#00d2ff"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
+        <span>{ads_label}</span>
+      </div>
+      <div class="stat-value cyan">{blocked_total}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-header">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" color="#ff5500"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/></svg>
+        <span>{bw_label}</span>
+      </div>
+      <div class="stat-value orange">{bw_saved} MB</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-header">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" color="#a855f7"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+        <span>{time_label}</span>
+      </div>
+      <div class="stat-value purple">{time_saved}s</div>
+    </div>
+  </div>
+
+  <!-- Universal Omnibox Search -->
+  <div class="search-container">
+    <form id="search-form" action="https://www.google.com/search" method="GET">
+      <div class="search-bar">
+        <div class="search-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+        <input type="text" name="q" class="search-input" id="search-input" placeholder="{search_placeholder}" autocomplete="off" spellcheck="false" autofocus>
+        <div class="ai-mode-toggle" id="gemini-toggle" title="Toggle Gemini AI Copilot">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>
+          <span>Gemini AI</span>
+        </div>
+      </div>
     </form>
   </div>
 
+  <!-- Browser Data Migration Banner -->
+  <div class="migration-banner">
+    <div class="migration-info">
+      <div class="migration-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>{migration_title}</span>
+      </div>
+      <div class="migration-desc">{migration_desc}</div>
+    </div>
+    <div class="migration-actions">
+      <button class="migrate-btn" onclick="triggerImport('google-chrome')">
+        <span>{import_chrome_btn}</span>
+      </button>
+      <button class="migrate-btn" onclick="triggerImport('brave')">
+        <span>{import_brave_btn}</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Curated Shortcuts Grid -->
   <div class="shortcuts-grid">
-    <a href="https://google.com" class="shortcut">
-      <div class="shortcut-icon">🔍</div>
+    <a href="https://google.com" class="shortcut-card">
+      <div class="shortcut-icon-wrap">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" color="#4285F4"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>
+      </div>
       <div class="shortcut-title">Google</div>
     </a>
-    <a href="https://wikipedia.org" class="shortcut">
-      <div class="shortcut-icon">📚</div>
-      <div class="shortcut-title">Wikipedia</div>
+    <a href="https://gemini.google.com" class="shortcut-card">
+      <div class="shortcut-icon-wrap">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" color="#A855F7"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>
+      </div>
+      <div class="shortcut-title">Gemini AI</div>
     </a>
-    <a href="https://rust-lang.org" class="shortcut">
-      <div class="shortcut-icon">🦀</div>
-      <div class="shortcut-title">Rust Lang</div>
+    <a href="https://youtube.com" class="shortcut-card">
+      <div class="shortcut-icon-wrap">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" color="#FF0000"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+      </div>
+      <div class="shortcut-title">YouTube</div>
     </a>
-    <a href="https://github.com" class="shortcut">
-      <div class="shortcut-icon">🐙</div>
+    <a href="https://x.com" class="shortcut-card">
+      <div class="shortcut-icon-wrap">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" color="#F0F2F5"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      </div>
+      <div class="shortcut-title">X (Twitter)</div>
+    </a>
+    <a href="https://github.com" class="shortcut-card">
+      <div class="shortcut-icon-wrap">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" color="#F0F2F5"><path d="M12 2C6.48 2 2 6.48 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.1-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z"/></svg>
+      </div>
       <div class="shortcut-title">GitHub</div>
     </a>
-    <a href="https://news.ycombinator.com" class="shortcut">
-      <div class="shortcut-icon">⚡</div>
+    <a href="https://reddit.com" class="shortcut-card">
+      <div class="shortcut-icon-wrap">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" color="#FF4500"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm5.01 10.74a1.76 1.76 0 0 1 .1.59c0 2.21-2.28 4-5.11 4s-5.11-1.79-5.11-4c0-.2.04-.4.1-.59a1.69 1.69 0 0 1-.22-.84c0-.95.77-1.72 1.72-1.72.56 0 1.05.27 1.36.68 1.03-.68 2.38-1.11 3.86-1.16l.66-3.09 2.15.46a1.23 1.23 0 1 1 2.4.45c0 .68-.55 1.23-1.23 1.23-.55 0-1.01-.36-1.17-.86l-1.89-.4-.56 2.64c1.45.06 2.79.48 3.81 1.15.31-.41.8-.68 1.36-.68.95 0 1.72.77 1.72 1.72 0 .31-.08.6-.22.84z"/></svg>
+      </div>
+      <div class="shortcut-title">Reddit</div>
+    </a>
+    <a href="https://wikipedia.org" class="shortcut-card">
+      <div class="shortcut-icon-wrap">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      </div>
+      <div class="shortcut-title">Wikipedia</div>
+    </a>
+    <a href="https://news.ycombinator.com" class="shortcut-card">
+      <div class="shortcut-icon-wrap">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" color="#FF6600"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
       <div class="shortcut-title">Hacker News</div>
     </a>
   </div>
+
+  <!-- Status Notification Toast -->
+  <div class="status-toast" id="toast">
+    <span id="toast-text">Importing data...</span>
+  </div>
+
+  <script>
+    // Bulletproof Multi-Layer IPC Bridge
+    function sendIpc(action, data) {{
+      const payload = JSON.stringify({{ action: action, ...(data || {{}}) }});
+      if (window.ipc && typeof window.ipc.postMessage === 'function') {{
+        window.ipc.postMessage(payload);
+        return;
+      }}
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc) {{
+        window.webkit.messageHandlers.ipc.postMessage(payload);
+        return;
+      }}
+      // Fallback via location cancellation
+      window.location.href = 'valorex-action://' + encodeURIComponent(payload);
+    }}
+
+    // Live Clock & Greeting
+    function updateClock() {{
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const mins = String(now.getMinutes()).padStart(2, '0');
+      document.getElementById('live-clock').textContent = hours + ':' + mins;
+
+      const locale = '{lang_code}' === 'ar' ? 'ar-EG' : 'en-US';
+      const opts = {{ weekday: 'long', month: 'short', day: 'numeric' }};
+      document.getElementById('live-date').textContent = now.toLocaleDateString(locale, opts);
+    }}
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    let geminiMode = false;
+    const toggle = document.getElementById('gemini-toggle');
+    const input = document.getElementById('search-input');
+    const form = document.getElementById('search-form');
+
+    toggle.onclick = () => {{
+      geminiMode = !geminiMode;
+      toggle.classList.toggle('active', geminiMode);
+      if (geminiMode) {{
+        input.placeholder = '{lang_code}' === 'ar' ? 'اسأل Gemini AI عن أي شيء...' : 'Ask Gemini AI anything...';
+      }} else {{
+        input.placeholder = '{search_placeholder}';
+      }}
+      input.focus();
+    }};
+
+    form.onsubmit = (e) => {{
+      const query = input.value.trim();
+      if (!query) return false;
+      if (geminiMode) {{
+        e.preventDefault();
+        const geminiUrl = 'https://gemini.google.com/app?q=' + encodeURIComponent(query);
+        window.location.href = geminiUrl;
+        return false;
+      }}
+      return true;
+    }};
+
+    // Browser Migration Trigger
+    function triggerImport(browser) {{
+      const msg = '{lang_code}' === 'ar' ? 'جاري استيراد البيانات من ' + browser + '...' : 'Importing data from ' + browser + '...';
+      showToast(msg);
+      sendIpc('import_data', {{ target: browser }});
+    }}
+
+    window.valorexOnImportFinished = function(summary) {{
+      const msg = '{lang_code}' === 'ar' 
+        ? 'تم بنجاح استيراد ' + summary.bookmarks_imported + ' مفضلة و ' + summary.history_imported + ' رابط من ' + summary.browser_name
+        : 'Successfully imported ' + summary.bookmarks_imported + ' bookmarks and ' + summary.history_imported + ' history entries from ' + summary.browser_name;
+      showToast(msg);
+    }};
+
+    function showToast(text) {{
+      const toast = document.getElementById('toast');
+      const toastText = document.getElementById('toast-text');
+      toastText.textContent = text;
+      toast.style.display = 'flex';
+      setTimeout(() => {{
+        toast.style.display = 'none';
+      }}, 5000);
+    }}
+  </script>
 </body>
 </html>
-"#,
-            blocked_total
+"###
         )
     }
 
-    pub fn render_history(storage: &StorageEngine) -> String {
-        let entries = storage.get_recent_history(100).unwrap_or_default();
+    pub fn render_history(storage: &StorageEngine, lang: Language) -> String {
+        let entries = storage.get_recent_history(500).unwrap_or_default();
+        let is_ar = lang.is_rtl();
+        let dir = lang.direction();
+        let lang_code = lang.code();
+
+        let (page_title, clear_btn_label, empty_label, confirm_msg) = if is_ar {
+            ("سجل التصفح", "مسح سجل التصفح بالكامل", "سجل التصفح فارغ حالياً.", "هل أنت متأكد من مسح جميع بيانات التصفح؟")
+        } else {
+            ("Browsing History", "Clear Browsing Data", "No browsing history recorded yet.", "Are you sure you want to clear all browsing history?")
+        };
+
         let mut list_html = String::new();
         for item in entries {
+            let display_time = item.visit_time.split('T').next().unwrap_or(&item.visit_time);
             list_html.push_str(&format!(
                 r#"<div class="history-item">
-                    <div class="history-time">{}</div>
+                    <span class="history-time">{}</span>
                     <a href="{}" class="history-title">{}</a>
-                    <div class="history-url">{}</div>
+                    <span class="history-url">{}</span>
                 </div>"#,
-                item.visit_time.chars().take(10).collect::<String>(),
-                item.url,
-                if item.title.is_empty() { &item.url } else { &item.title },
-                item.url
+                display_time, item.url, item.title, item.url
             ));
         }
 
         if list_html.is_empty() {
-            list_html = r#"<div class="empty">No browsing history recorded yet.</div>"#.to_string();
+            list_html = format!(r#"<div class="empty">{}</div>"#, empty_label);
         }
 
         format!(
-            r#"<!DOCTYPE html>
-<html lang="en">
+            r###"<!DOCTYPE html>
+<html lang="{lang_code}" dir="{dir}">
 <head>
 <meta charset="utf-8">
-<title>Browsing History - Valorex</title>
+<title>{page_title} - Valorex</title>
 <style>
   :root {{
     --bg: #121316;
@@ -228,7 +646,7 @@ impl InternalPages {
     --accent: #00d2ff;
     --text: #f0f2f5;
     --secondary: #9aa0ad;
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", "Tajawal", sans-serif;
   }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
@@ -250,11 +668,12 @@ impl InternalPages {
   h1 {{ font-size: 26px; }}
   .clear-btn {{
     background: #ef4444;
-    color: white;
     border: none;
+    color: white;
     padding: 8px 16px;
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
+    font-size: 13px;
     font-weight: 600;
     transition: opacity 0.2s;
   }}
@@ -309,31 +728,51 @@ impl InternalPages {
 </head>
 <body>
   <div class="header">
-    <h1>Browsing History</h1>
-    <button class="clear-btn" onclick="clearAllHistory()">Clear Browsing Data</button>
+    <h1>{page_title}</h1>
+    <button class="clear-btn" onclick="clearAllHistory()">{clear_btn_label}</button>
   </div>
   <div class="history-list">
-    {}
+    {list_html}
   </div>
   <script>
+    function sendIpc(action, data) {{
+      const payload = JSON.stringify({{ action: action, ...(data || {{}}) }});
+      if (window.ipc && typeof window.ipc.postMessage === 'function') {{
+        window.ipc.postMessage(payload);
+        return;
+      }}
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc) {{
+        window.webkit.messageHandlers.ipc.postMessage(payload);
+        return;
+      }}
+      window.location.href = 'valorex-action://' + encodeURIComponent(payload);
+    }}
+
     function clearAllHistory() {{
-      if (confirm('Are you sure you want to clear all history?')) {{
-        if (window.ipc) {{
-          window.ipc.postMessage(JSON.stringify({{ action: 'clear_history' }}));
-          location.reload();
-        }}
+      if (confirm('{confirm_msg}')) {{
+        sendIpc('clear_history');
+        setTimeout(() => location.reload(), 300);
       }}
     }}
   </script>
 </body>
 </html>
-"#,
-            list_html
+"###
         )
     }
 
-    pub fn render_bookmarks(storage: &StorageEngine) -> String {
+    pub fn render_bookmarks(storage: &StorageEngine, lang: Language) -> String {
         let entries = storage.get_bookmarks().unwrap_or_default();
+        let is_ar = lang.is_rtl();
+        let dir = lang.direction();
+        let lang_code = lang.code();
+
+        let (page_title, remove_label, empty_label) = if is_ar {
+            ("الإشارات المرجعية والمفضلة", "حذف", "لا توجد مفضلات محفوظة بعد. اضغط على أيقونة النجمة في شريط العناوين لحفظ أي صفحة!")
+        } else {
+            ("Bookmarks", "Remove", "No bookmarks saved yet. Click the star icon in the address bar to bookmark any page!")
+        };
+
         let mut list_html = String::new();
         for item in entries {
             list_html.push_str(&format!(
@@ -341,22 +780,22 @@ impl InternalPages {
                     <span class="bookmark-icon">⭐</span>
                     <a href="{}" class="bookmark-title">{}</a>
                     <span class="bookmark-url">{}</span>
-                    <button class="del-btn" onclick="deleteBookmark({})">Remove</button>
+                    <button class="del-btn" onclick="deleteBookmark({})">{}</button>
                 </div>"#,
-                item.url, item.title, item.url, item.id
+                item.url, item.title, item.url, item.id, remove_label
             ));
         }
 
         if list_html.is_empty() {
-            list_html = r#"<div class="empty">No bookmarks saved yet. Click the star icon in the address bar to bookmark any page!</div>"#.to_string();
+            list_html = format!(r#"<div class="empty">{}</div>"#, empty_label);
         }
 
         format!(
-            r#"<!DOCTYPE html>
-<html lang="en">
+            r###"<!DOCTYPE html>
+<html lang="{lang_code}" dir="{dir}">
 <head>
 <meta charset="utf-8">
-<title>Bookmarks - Valorex</title>
+<title>{page_title} - Valorex</title>
 <style>
   :root {{
     --bg: #121316;
@@ -365,7 +804,7 @@ impl InternalPages {
     --accent: #fbbf24;
     --text: #f0f2f5;
     --secondary: #9aa0ad;
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", "Tajawal", sans-serif;
   }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
@@ -420,127 +859,47 @@ impl InternalPages {
 </style>
 </head>
 <body>
-  <h1>Saved Bookmarks</h1>
+  <h1>{page_title}</h1>
   <div class="bookmarks-list">
-    {}
+    {list_html}
   </div>
   <script>
-    function deleteBookmark(id) {{
-      if (window.ipc) {{
-        window.ipc.postMessage(JSON.stringify({{ action: 'delete_bookmark', id: id }}));
-        location.reload();
+    function sendIpc(action, data) {{
+      const payload = JSON.stringify({{ action: action, ...(data || {{}}) }});
+      if (window.ipc && typeof window.ipc.postMessage === 'function') {{
+        window.ipc.postMessage(payload);
+        return;
       }}
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc) {{
+        window.webkit.messageHandlers.ipc.postMessage(payload);
+        return;
+      }}
+      window.location.href = 'valorex-action://' + encodeURIComponent(payload);
+    }}
+
+    function deleteBookmark(id) {{
+      sendIpc('delete_bookmark', {{ id: id }});
+      setTimeout(() => location.reload(), 300);
     }}
   </script>
 </body>
 </html>
-"#,
-            list_html
+"###
         )
     }
 
-    pub fn render_settings() -> String {
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Settings - Valorex</title>
-<style>
-  :root {
-    --bg: #121316;
-    --card: #1c1d22;
-    --border: #2b2d35;
-    --accent: #00d2ff;
-    --text: #f0f2f5;
-    --secondary: #9aa0ad;
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font);
-    padding: 40px;
-    max-width: 800px;
-    margin: 0 auto;
-  }
-  h1 { font-size: 26px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
-  .section {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 20px;
-  }
-  .section-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
-  .setting-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-  }
-  .setting-row:last-child { border-bottom: none; }
-  .setting-desc { font-size: 12px; color: var(--secondary); margin-top: 4px; }
-  .badge {
-    background: rgba(0, 210, 255, 0.15);
-    color: var(--accent);
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
-  }
-</style>
-</head>
-<body>
-  <h1>Valorex Settings</h1>
-
-  <div class="section">
-    <div class="section-title">Shields & Privacy Protection</div>
-    <div class="setting-row">
-      <div>
-        <div>Global Ad & Tracker Blocking</div>
-        <div class="setting-desc">Blocks third-party trackers, beacons, and invasive advertising networks.</div>
-      </div>
-      <span class="badge">ACTIVE</span>
-    </div>
-    <div class="setting-row">
-      <div>
-        <div>Cosmetic Element Hiding</div>
-        <div class="setting-desc">Removes empty placeholders left by blocked advertisements.</div>
-      </div>
-      <span class="badge">ACTIVE</span>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">Search Engine</div>
-    <div class="setting-row">
-      <div>
-        <div>Default Search Provider</div>
-        <div class="setting-desc">Search query engine used in the address bar.</div>
-      </div>
-      <span class="badge">Google (Default)</span>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">Browser Engine Information</div>
-    <div class="setting-row">
-      <div>
-        <div>Engine Architecture</div>
-        <div class="setting-desc">Built with Rust, Wry (WebKitGTK 4.1), and Brave Adblock Engine.</div>
-      </div>
-      <span class="badge">v0.1.0</span>
-    </div>
-  </div>
-</body>
-</html>
-"#.to_string()
-    }
-
-    pub fn render_downloads(storage: &StorageEngine) -> String {
+    pub fn render_downloads(storage: &StorageEngine, lang: Language) -> String {
         let entries = storage.get_downloads().unwrap_or_default();
+        let is_ar = lang.is_rtl();
+        let dir = lang.direction();
+        let lang_code = lang.code();
+
+        let (page_title, empty_label, completed_badge) = if is_ar {
+            ("التنزيلات", "لا توجد ملفات تم تنزيلها حتى الآن.", "مكتمل")
+        } else {
+            ("Downloads", "No downloaded files recorded yet.", "COMPLETED")
+        };
+
         let mut list_html = String::new();
         for item in entries {
             list_html.push_str(&format!(
@@ -550,22 +909,22 @@ impl InternalPages {
                       <div class="filename">{}</div>
                       <div class="filepath">{}</div>
                     </div>
-                    <span class="badge">COMPLETED</span>
+                    <span class="badge">{}</span>
                 </div>"#,
-                item.filename, item.path
+                item.filename, item.path, completed_badge
             ));
         }
 
         if list_html.is_empty() {
-            list_html = r#"<div class="empty">No downloaded files recorded yet.</div>"#.to_string();
+            list_html = format!(r#"<div class="empty">{}</div>"#, empty_label);
         }
 
         format!(
-            r#"<!DOCTYPE html>
-<html lang="en">
+            r###"<!DOCTYPE html>
+<html lang="{lang_code}" dir="{dir}">
 <head>
 <meta charset="utf-8">
-<title>Downloads - Valorex</title>
+<title>{page_title} - Valorex</title>
 <style>
   :root {{
     --bg: #121316;
@@ -574,7 +933,7 @@ impl InternalPages {
     --accent: #00d2ff;
     --text: #f0f2f5;
     --secondary: #9aa0ad;
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", "Tajawal", sans-serif;
   }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
@@ -591,35 +950,685 @@ impl InternalPages {
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 14px 18px;
+    padding: 12px 16px;
     display: flex;
     align-items: center;
     gap: 16px;
   }}
-  .file-icon {{ font-size: 24px; }}
-  .file-info {{ flex: 1; min-width: 0; }}
-  .filename {{ font-weight: 600; color: var(--text); }}
-  .filepath {{ font-size: 12px; color: var(--secondary); margin-top: 3px; word-break: break-all; }}
+  .file-icon {{ font-size: 20px; }}
+  .file-info {{ flex: 1; }}
+  .filename {{ font-weight: 500; font-size: 14px; margin-bottom: 2px; }}
+  .filepath {{ font-size: 11px; color: var(--secondary); }}
   .badge {{
     background: rgba(16, 185, 129, 0.15);
     color: #10b981;
-    padding: 4px 10px;
-    border-radius: 6px;
+    padding: 4px 8px;
+    border-radius: 4px;
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
   }}
   .empty {{ text-align: center; padding: 60px 0; color: var(--secondary); font-size: 16px; }}
 </style>
 </head>
 <body>
-  <h1>Downloads</h1>
+  <h1>{page_title}</h1>
   <div class="downloads-list">
-    {}
+    {list_html}
   </div>
 </body>
 </html>
-"#,
-            list_html
+"###
         )
+    }
+
+    pub fn render_settings(lang: Language) -> String {
+        let is_ar = lang.is_rtl();
+        let dir = lang.direction();
+        let lang_code = lang.code();
+
+        if is_ar {
+            format!(
+                r###"<!DOCTYPE html>
+<html lang="{lang_code}" dir="{dir}">
+<head>
+<meta charset="utf-8">
+<title>الإعدادات - Valorex 2027</title>
+<style>
+  :root {{
+    --bg: #0f1013;
+    --card: #18191f;
+    --border: #282a33;
+    --accent: #00d2ff;
+    --accent-gemini: #a855f7;
+    --text: #f0f2f5;
+    --secondary: #9aa0ad;
+    --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", "Tajawal", sans-serif;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    padding: 40px;
+    max-width: 820px;
+    margin: 0 auto;
+  }}
+  .header-wrap {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }}
+  h1 {{ font-size: 26px; }}
+  .lang-toggle-bar {{
+    display: flex;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }}
+  .lang-btn {{
+    background: transparent;
+    border: none;
+    color: var(--secondary);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }}
+  .lang-btn.active {{
+    background: var(--accent);
+    color: #000000;
+  }}
+  .section {{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }}
+  .section-title {{ font-size: 16px; font-weight: 600; margin-bottom: 12px; color: #ffffff; }}
+  .setting-row {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }}
+  .setting-row:last-child {{ border-bottom: none; }}
+  .setting-desc {{ font-size: 12px; color: var(--secondary); margin-top: 4px; line-height: 1.5; }}
+  .badge {{
+    background: rgba(0, 210, 255, 0.15);
+    color: var(--accent);
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+  }}
+  .badge.purple {{
+    background: rgba(168, 85, 247, 0.18);
+    color: var(--accent-gemini);
+  }}
+  .badge.green {{
+    background: rgba(16, 185, 129, 0.18);
+    color: #10b981;
+  }}
+  .btn-action {{
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    font-family: inherit;
+  }}
+  .btn-action:hover {{
+    background: rgba(0, 210, 255, 0.15);
+    border-color: var(--accent);
+  }}
+  .btn-action.purple:hover {{
+    background: rgba(168, 85, 247, 0.2);
+    border-color: var(--accent-gemini);
+  }}
+  .toast {{
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1e2028;
+    border: 1px solid var(--accent);
+    color: #fff;
+    padding: 12px 24px;
+    border-radius: 10px;
+    display: none;
+    font-size: 13px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+  }}
+</style>
+</head>
+<body>
+  <div class="header-wrap">
+    <h1>إعدادات المتصفح</h1>
+    <div class="lang-toggle-bar">
+      <button class="lang-btn active">العربية</button>
+      <button class="lang-btn" onclick="switchLang('en')">English</button>
+    </div>
+  </div>
+
+  <!-- Data Migration Section -->
+  <div class="section">
+    <div class="section-title">استيراد البيانات والمفضلة</div>
+    <div class="setting-row">
+      <div>
+        <div>استيراد من Google Chrome</div>
+        <div class="setting-desc">استيراد الإشارات المرجعية وسجل التصفح من ملف Chrome الشخصي المحلي بنقرة واحدة.</div>
+      </div>
+      <button class="btn-action" onclick="runImport('google-chrome')">استيراد Chrome</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>استيراد من Brave Browser</div>
+        <div class="setting-desc">استيراد الإشارات وسجل التصفح وقوائم المواقع من متصفح Brave.</div>
+      </div>
+      <button class="btn-action" onclick="runImport('brave')">استيراد Brave</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>استيراد من Mozilla Firefox</div>
+        <div class="setting-desc">استيراد الإشارات وسجل التصفح من قواعد بيانات Firefox SQLite.</div>
+      </div>
+      <button class="btn-action" onclick="runImport('firefox')">استيراد Firefox</button>
+    </div>
+  </div>
+
+  <!-- Google & Gemini AI Integration -->
+  <div class="section">
+    <div class="section-title">خدمات Google والذكاء الاصطناعي</div>
+    <div class="setting-row">
+      <div>
+        <div>تسجيل الدخول بحساب Google وجيميل</div>
+        <div class="setting-desc">الوصول السلس إلى حساب Gmail وخدمات جوجل مع هوية كروم الأصلية وحفظ الجلسة.</div>
+      </div>
+      <button class="btn-action" onclick="loginGoogle()">تسجيل الدخول</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>مساعد Gemini الذكي</div>
+        <div class="setting-desc">مساعد ذكاء اصطناعي مدمج للبحث المتقدم وتلخيص صفحات الويب وكتابة المحتوى.</div>
+      </div>
+      <button class="btn-action purple" onclick="openGemini()">فتح Gemini</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>حفظ الجلسات وملفات تعريف الارتباط</div>
+        <div class="setting-desc">الجلسات وملفات تعريف الارتباط وتوكنات الدخول تبقى محفوظة دائماً حتى بعد إعادة التشغيل.</div>
+      </div>
+      <span class="badge green">جلسة دائمة</span>
+    </div>
+  </div>
+
+  <!-- Shields Section -->
+  <div class="section">
+    <div class="section-title">حماية الخصوصية والإعلانات</div>
+    <div class="setting-row">
+      <div>
+        <div>حجب الإعلانات والمتتبعات العالمية</div>
+        <div class="setting-desc">محرك Brave Adblock المتقدم لحجب المتتبعات والإعلانات والبرمجيات الخبيثة.</div>
+      </div>
+      <span class="badge">نشط ومفعل</span>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>إخفاء الفراغات الإعلانية</div>
+        <div class="setting-desc">إزالة المساحات الفارغة وبانرات الإعلانات المنهارة في صفحات الويب لتجربة تصفح نظيفة.</div>
+      </div>
+      <span class="badge">نشط ومفعل</span>
+    </div>
+  </div>
+
+  <!-- Search Engine -->
+  <div class="section">
+    <div class="section-title">محرك البحث الافتراضي</div>
+    <div class="setting-row">
+      <div>
+        <div>مزود البحث الافتراضي</div>
+        <div class="setting-desc">محرك Google مهيأ افتراضياً لجميع استعلامات شريط العناوين.</div>
+      </div>
+      <span class="badge">Google (افتراضي)</span>
+    </div>
+  </div>
+
+  <!-- Appearance & Window Controls -->
+  <div class="section">
+    <div class="section-title">المظهر والتحكم بالنوافذ والتبويبات</div>
+    <div class="setting-row">
+      <div>
+        <div>أزرار التحكم بالنافذة (التصغير، التكبير، الإغلاق)</div>
+        <div class="setting-desc">إظهار أو إخفاء أزرار التحكم بالنافذة في شريط التبويبات العلوي لمنح التبويبات المساحة الكاملة.</div>
+      </div>
+      <button class="btn-action" onclick="toggleWindowControls()">تبديل الإظهار</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>زر إغلاق التبويب (X)</div>
+        <div class="setting-desc">إظهار أو إخفاء زر الإغلاق من التبويبات لمنع الإغلاق بالخطأ وزيادة اتساع العناوين.</div>
+      </div>
+      <button class="btn-action" onclick="toggleTabClose()">تبديل الإظهار</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>شريط عنوان النظام الأصلي</div>
+        <div class="setting-desc">استخدام شريط العنوان المخصص من نظام التشغيل بدلاً من شريط التبويبات المدمج.</div>
+      </div>
+      <button class="btn-action" onclick="toggleSystemTitlebar()">تبديل الإظهار</button>
+    </div>
+  </div>
+
+  <!-- Engine Info -->
+  <div class="section">
+    <div class="section-title">معلومات المحرك والنظام</div>
+    <div class="setting-row">
+      <div>
+        <div>محرك Valorex الأساسي</div>
+        <div class="setting-desc">مبني بلغة Rust مع Wry 0.57 و WebKitGTK 4.1 وتقنيات محاكاة هوية كروم الأصلية.</div>
+      </div>
+      <span class="badge">إصدار 2027</span>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    function sendIpc(action, data) {{
+      const payload = JSON.stringify({{ action: action, ...(data || {{}}) }});
+      if (window.ipc && typeof window.ipc.postMessage === 'function') {{
+        window.ipc.postMessage(payload);
+        return;
+      }}
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc) {{
+        window.webkit.messageHandlers.ipc.postMessage(payload);
+        return;
+      }}
+      window.location.href = 'valorex-action://' + encodeURIComponent(payload);
+    }}
+
+    function switchLang(code) {{
+      sendIpc('set_language', {{ target: code }});
+      setTimeout(() => location.reload(), 200);
+    }}
+
+    function toggleWindowControls() {{
+      sendIpc('toggle_window_controls');
+      showToast('تم تبديل أزرار التحكم بالنافذة');
+    }}
+
+    function toggleTabClose() {{
+      sendIpc('toggle_tab_close');
+      showToast('تم تبديل زر إغلاق التبويبات');
+    }}
+
+    function toggleSystemTitlebar() {{
+      sendIpc('toggle_decorations');
+      showToast('تم تبديل استخدام شريط عنوان النظام');
+    }}
+
+    function runImport(browser) {{
+      showToast('جاري استيراد البيانات من ' + browser + '...');
+      sendIpc('import_data', {{ target: browser }});
+    }}
+
+    function loginGoogle() {{
+      sendIpc('google_login');
+    }}
+
+    function openGemini() {{
+      sendIpc('open_gemini');
+    }}
+
+    window.valorexOnImportFinished = function(summary) {{
+      showToast('تم بنجاح استيراد ' + summary.bookmarks_imported + ' مفضلة و ' + summary.history_imported + ' رابط من ' + summary.browser_name);
+    }};
+
+    function showToast(msg) {{
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.display = 'block';
+      setTimeout(() => {{ t.style.display = 'none'; }}, 5000);
+    }}
+  </script>
+</body>
+</html>
+"###
+            )
+        } else {
+            // English Interface
+            format!(
+                r###"<!DOCTYPE html>
+<html lang="{lang_code}" dir="{dir}">
+<head>
+<meta charset="utf-8">
+<title>Settings - Valorex 2027</title>
+<style>
+  :root {{
+    --bg: #0f1013;
+    --card: #18191f;
+    --border: #282a33;
+    --accent: #00d2ff;
+    --accent-gemini: #a855f7;
+    --text: #f0f2f5;
+    --secondary: #9aa0ad;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    padding: 40px;
+    max-width: 820px;
+    margin: 0 auto;
+  }}
+  .header-wrap {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }}
+  h1 {{ font-size: 26px; }}
+  .lang-toggle-bar {{
+    display: flex;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }}
+  .lang-btn {{
+    background: transparent;
+    border: none;
+    color: var(--secondary);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }}
+  .lang-btn.active {{
+    background: var(--accent);
+    color: #000000;
+  }}
+  .section {{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }}
+  .section-title {{ font-size: 16px; font-weight: 600; margin-bottom: 12px; }}
+  .setting-row {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }}
+  .setting-row:last-child {{ border-bottom: none; }}
+  .setting-desc {{ font-size: 12px; color: var(--secondary); margin-top: 4px; }}
+  .badge {{
+    background: rgba(0, 210, 255, 0.15);
+    color: var(--accent);
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+  }}
+  .badge.purple {{
+    background: rgba(168, 85, 247, 0.18);
+    color: var(--accent-gemini);
+  }}
+  .badge.green {{
+    background: rgba(16, 185, 129, 0.18);
+    color: #10b981;
+  }}
+  .btn-action {{
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }}
+  .btn-action:hover {{
+    background: rgba(0, 210, 255, 0.15);
+    border-color: var(--accent);
+  }}
+  .btn-action.purple:hover {{
+    background: rgba(168, 85, 247, 0.2);
+    border-color: var(--accent-gemini);
+  }}
+  .toast {{
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #1e2028;
+    border: 1px solid var(--accent);
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 8px;
+    display: none;
+    font-size: 13px;
+  }}
+</style>
+</head>
+<body>
+  <div class="header-wrap">
+    <h1>Valorex Settings</h1>
+    <div class="lang-toggle-bar">
+      <button class="lang-btn" onclick="switchLang('ar')">العربية</button>
+      <button class="lang-btn active">English</button>
+    </div>
+  </div>
+
+  <!-- Data Migration Section -->
+  <div class="section">
+    <div class="section-title">Browser Data Migration</div>
+    <div class="setting-row">
+      <div>
+        <div>Import from Google Chrome</div>
+        <div class="setting-desc">Imports bookmarks and history from your local Google Chrome profile.</div>
+      </div>
+      <button class="btn-action" onclick="runImport('google-chrome')">Import Chrome</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>Import from Brave Browser</div>
+        <div class="setting-desc">Imports bookmarks and history from your local Brave profile.</div>
+      </div>
+      <button class="btn-action" onclick="runImport('brave')">Import Brave</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>Import from Mozilla Firefox</div>
+        <div class="setting-desc">Imports bookmarks and history from Firefox SQLite databases.</div>
+      </div>
+      <button class="btn-action" onclick="runImport('firefox')">Import Firefox</button>
+    </div>
+  </div>
+
+  <!-- Google & Gemini AI Integration -->
+  <div class="section">
+    <div class="section-title">Google Services & Gemini AI</div>
+    <div class="setting-row">
+      <div>
+        <div>Google Account & Gmail Access</div>
+        <div class="setting-desc">Legitimate Chrome User-Agent and persistent session directory active.</div>
+      </div>
+      <button class="btn-action" onclick="loginGoogle()">Sign in to Google</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>Gemini AI Copilot</div>
+        <div class="setting-desc">Built-in AI Assistant for page summarization and deep research queries.</div>
+      </div>
+      <button class="btn-action purple" onclick="openGemini()">Launch Gemini</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>Session State Persistence</div>
+        <div class="setting-desc">Cookies and authentication tokens persist across browser restarts.</div>
+      </div>
+      <span class="badge green">PERSISTENT</span>
+    </div>
+  </div>
+
+  <!-- Shields Section -->
+  <div class="section">
+    <div class="section-title">Shields & Privacy Protection</div>
+    <div class="setting-row">
+      <div>
+        <div>Global Ad & Tracker Blocking</div>
+        <div class="setting-desc">Brave Adblock engine blocking third-party telemetry, ads, and malware.</div>
+      </div>
+      <span class="badge">ACTIVE</span>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>Cosmetic Element Hiding</div>
+        <div class="setting-desc">Removes empty visual gaps and collapsed ad banners on web pages.</div>
+      </div>
+      <span class="badge">ACTIVE</span>
+    </div>
+  </div>
+
+  <!-- Search Engine -->
+  <div class="section">
+    <div class="section-title">Search Engine</div>
+    <div class="setting-row">
+      <div>
+        <div>Default Search Provider</div>
+        <div class="setting-desc">Google Search engine configured for universal omnibox queries.</div>
+      </div>
+      <span class="badge">Google (Default)</span>
+    </div>
+  </div>
+
+  <!-- Appearance & Window Controls -->
+  <div class="section">
+    <div class="section-title">Appearance & Window Controls</div>
+    <div class="setting-row">
+      <div>
+        <div>Window Caption Controls</div>
+        <div class="setting-desc">Show or hide the window caption buttons (Minimize, Maximize, Close) in the tab bar.</div>
+      </div>
+      <button class="btn-action" onclick="toggleWindowControls()">Toggle Controls</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>Tab Close (X) Button</div>
+        <div class="setting-desc">Show or hide the close (X) button on tabs to prevent accidental tab closing.</div>
+      </div>
+      <button class="btn-action" onclick="toggleTabClose()">Toggle Close (X)</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div>System Title Bar</div>
+        <div class="setting-desc">Use OS native window decoration title bar instead of integrated tab bar.</div>
+      </div>
+      <button class="btn-action" onclick="toggleSystemTitlebar()">Toggle System Bar</button>
+    </div>
+  </div>
+
+  <!-- Engine Info -->
+  <div class="section">
+    <div class="section-title">Architecture & Diagnostics</div>
+    <div class="setting-row">
+      <div>
+        <div>Valorex Core Engine</div>
+        <div class="setting-desc">Rust + Wry 0.57 + WebKitGTK 4.1 + Native Chrome spoofing.</div>
+      </div>
+      <span class="badge">v0.2.0 (2027 Edition)</span>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    function sendIpc(action, data) {{
+      const payload = JSON.stringify({{ action: action, ...(data || {{}}) }});
+      if (window.ipc && typeof window.ipc.postMessage === 'function') {{
+        window.ipc.postMessage(payload);
+        return;
+      }}
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ipc) {{
+        window.webkit.messageHandlers.ipc.postMessage(payload);
+        return;
+      }}
+      window.location.href = 'valorex-action://' + encodeURIComponent(payload);
+    }}
+
+    function switchLang(code) {{
+      sendIpc('set_language', {{ target: code }});
+      setTimeout(() => location.reload(), 200);
+    }}
+
+    function toggleWindowControls() {{
+      sendIpc('toggle_window_controls');
+      showToast('Toggled Window Caption Controls');
+    }}
+
+    function toggleTabClose() {{
+      sendIpc('toggle_tab_close');
+      showToast('Toggled Tab Close Button');
+    }}
+
+    function toggleSystemTitlebar() {{
+      sendIpc('toggle_decorations');
+      showToast('Toggled System Title Bar');
+    }}
+
+    function runImport(browser) {{
+      showToast('Importing data from ' + browser + '...');
+      sendIpc('import_data', {{ target: browser }});
+    }}
+
+    function loginGoogle() {{
+      sendIpc('google_login');
+    }}
+
+    function openGemini() {{
+      sendIpc('open_gemini');
+    }}
+
+    window.valorexOnImportFinished = function(summary) {{
+      showToast('Successfully imported ' + summary.bookmarks_imported + ' bookmarks and ' + summary.history_imported + ' history entries from ' + summary.browser_name);
+    }};
+
+    function showToast(msg) {{
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.display = 'block';
+      setTimeout(() => {{ t.style.display = 'none'; }}, 5000);
+    }}
+  </script>
+</body>
+</html>
+"###
+            )
+        }
     }
 }

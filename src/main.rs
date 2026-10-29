@@ -106,6 +106,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Valorex shutting down gracefully.");
                 *control_flow = ControlFlow::Exit;
             }
+            Event::WindowEvent {
+                event: WindowEvent::Resized(_),
+                window_id: id,
+                ..
+            } if id == window_id => {
+                browser_window.sync_toolbar_state();
+            }
             _ => (),
         }
     });

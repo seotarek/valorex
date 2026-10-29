@@ -38,19 +38,31 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     border-bottom: 1px solid var(--border);
   }
 
-  /* --- Tab Bar --- */
-  .tab-bar {
+  /* --- Window Header (Top Row: Tabs + Drag Spacer + Window Controls) --- */
+  .window-header {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     height: 38px;
-    padding: 4px 8px 0 8px;
     background-color: var(--bg-base);
-    overflow-x: auto;
-    overflow-y: hidden;
-    gap: 4px;
+    user-select: none;
+    -webkit-user-select: none;
+    position: relative;
+    padding: 0;
+    margin: 0;
   }
 
-  .tab-bar::-webkit-scrollbar {
+  .tabs-container {
+    display: flex;
+    align-items: flex-end;
+    height: 100%;
+    padding: 0 0 0 6px;
+    gap: 3px;
+    max-width: calc(100% - 150px);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .tabs-container::-webkit-scrollbar {
     display: none;
   }
 
@@ -59,17 +71,18 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     align-items: center;
     max-width: 220px;
     min-width: 120px;
-    height: 32px;
+    height: 34px;
     padding: 0 10px;
     background-color: transparent;
     border-radius: var(--radius) var(--radius) 0 0;
     color: var(--text-secondary);
     font-size: 12px;
     cursor: pointer;
-    transition: background-color 0.15s, color 0.15s;
+    transition: background-color 0.12s, color 0.12s;
     position: relative;
     border: 1px solid transparent;
     border-bottom: none;
+    flex-shrink: 0;
   }
 
   .tab:hover {
@@ -85,8 +98,8 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .tab.pinned {
-    min-width: 42px;
-    max-width: 42px;
+    min-width: 40px;
+    max-width: 40px;
     padding: 0 10px;
     justify-content: center;
   }
@@ -100,19 +113,23 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .tab.drag-over {
-    border-left: 2px solid var(--shield-cyan);
-    transform: scale(1.02);
+    border-left: 2px solid var(--accent);
+    transform: scale(1.01);
   }
 
   .tab-icon {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     margin-right: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    opacity: 0.8;
+    color: var(--text-secondary);
+  }
+
+  .tab.active .tab-icon {
+    color: var(--accent);
   }
 
   .tab-title {
@@ -120,6 +137,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: 12px;
   }
 
   .tab-close {
@@ -130,10 +148,10 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     align-items: center;
     justify-content: center;
     margin-left: 6px;
-    font-size: 14px;
     color: var(--text-secondary);
     opacity: 0;
-    transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+    transition: opacity 0.12s, background-color 0.12s, color 0.12s;
+    flex-shrink: 0;
   }
 
   .tab:hover .tab-close, .tab.active .tab-close {
@@ -141,14 +159,14 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
   }
 
   .tab-close:hover {
-    background-color: rgba(255, 255, 255, 0.15);
-    color: #fff;
+    background-color: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
   }
 
   .new-tab-btn {
     width: 28px;
     height: 28px;
-    border-radius: 6px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -158,11 +176,68 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
     margin-left: 2px;
+    margin-bottom: 3px;
+    flex-shrink: 0;
   }
 
   .new-tab-btn:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+
+  .tab-drag-spacer {
+    flex: 1;
+    height: 100%;
+    min-width: 20px;
+    cursor: default;
+  }
+
+  /* --- Window Caption Controls (Google Chrome / Brave CSD) --- */
+  .window-controls {
+    display: flex;
+    align-items: stretch;
+    height: 100%;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .win-btn {
+    width: 46px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #9ba1b0;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    transition: background-color 0.1s ease, color 0.1s ease;
+  }
+
+  .win-btn svg {
+    pointer-events: none;
+  }
+
+  .win-btn:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+  }
+
+  .win-btn:active {
+    background-color: rgba(255, 255, 255, 0.22);
+  }
+
+  .win-btn.win-close:hover {
+    background-color: #e81123 !important;
+    color: #ffffff !important;
+  }
+
+  .win-btn.win-close:active {
+    background-color: #bf0f1d !important;
+    color: #ffffff !important;
   }
 
   /* --- Navigation Toolbar --- */
@@ -303,136 +378,38 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     height: 15px;
   }
 
-  /* --- Shield Dropdown Popup --- */
-  .shield-popup {
-    display: none;
-    position: absolute;
-    top: 48px;
-    right: 50px;
-    width: 260px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
-    padding: 14px;
-    z-index: 1000;
-  }
-
-  .shield-popup.open {
-    display: block;
-    animation: fadeIn 0.15s ease-out;
-  }
-
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .shield-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .shield-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .toggle-switch {
-    position: relative;
-    width: 36px;
-    height: 20px;
-  }
-
-  .toggle-switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-  }
-
-  .slider {
-    position: absolute;
-    cursor: pointer;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background-color: var(--bg-hover);
-    transition: .2s;
-    border-radius: 20px;
-  }
-
-  .slider:before {
-    position: absolute;
-    content: "";
-    height: 14px;
-    width: 14px;
-    left: 3px;
-    bottom: 3px;
-    background-color: white;
-    transition: .2s;
-    border-radius: 50%;
-  }
-
-  input:checked + .slider {
-  /* --- Window Controls (CSD mode like Chrome/Brave) --- */
-  .tab-drag-spacer {
-    flex: 1;
-    height: 100%;
-    min-width: 20px;
-    cursor: default;
-  }
-
-  .window-controls {
-    display: flex;
-    align-items: center;
-    height: 100%;
-    margin-left: auto;
-    padding-right: 4px;
-    gap: 2px;
-  }
-
-  .win-btn {
-    width: 32px;
-    height: 26px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-size: 13px;
-    border-radius: 4px;
-    transition: background 0.15s, color 0.15s;
-  }
-
-  .win-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .win-close:hover {
-    background: #e11d48;
-    color: #fff;
-  }
 </style>
 </head>
 <body>
 
-  <!-- Top Tab Bar (with CSD window controls & drag space) -->
-  <div class="tab-bar" id="tab-bar">
-    <!-- Tabs injected dynamically by JS -->
-    <button class="new-tab-btn" id="new-tab-btn" title="Open new tab (Ctrl+T)">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-    </button>
+  <!-- Top Tab Bar & Window Caption Header -->
+  <div class="window-header">
+    <div class="tabs-container" id="tabs-container">
+      <!-- Tabs injected dynamically by JS -->
+      <button class="new-tab-btn" id="new-tab-btn" title="New Tab (Ctrl+T)">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M6 1.5v9M1.5 6h9"/>
+        </svg>
+      </button>
+    </div>
     <div class="tab-drag-spacer" id="tab-drag-spacer"></div>
     <div class="window-controls" id="window-controls">
-      <button class="win-btn" id="win-min" title="Minimize">&#x2212;</button>
-      <button class="win-btn" id="win-max" title="Maximize / Restore">&#x25A2;</button>
-      <button class="win-btn win-close" id="win-close" title="Close">&#x2715;</button>
+      <button class="win-btn win-min" id="win-min" title="Minimize">
+        <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
+      </button>
+      <button class="win-btn win-max" id="win-max" title="Maximize">
+        <svg class="icon-max" width="10" height="10" viewBox="0 0 10 10">
+          <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/>
+        </svg>
+        <svg class="icon-restore" width="10" height="10" viewBox="0 0 10 10" style="display:none;">
+          <path d="M2.5 2.5V0.5h7v7h-2M0.5 2.5h7v7h-7z" fill="none" stroke="currentColor" stroke-width="1"/>
+        </svg>
+      </button>
+      <button class="win-btn win-close" id="win-close" title="Close">
+        <svg width="10" height="10" viewBox="0 0 10 10">
+          <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </button>
     </div>
   </div>
 
@@ -489,12 +466,25 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     }
   }
 
+  function updateMaximizeState(isMaximized) {
+    const maxBtn = document.getElementById('win-max');
+    if (!maxBtn) return;
+    const iconMax = maxBtn.querySelector('.icon-max');
+    const iconRestore = maxBtn.querySelector('.icon-restore');
+    if (iconMax && iconRestore) {
+      iconMax.style.display = isMaximized ? 'none' : 'block';
+      iconRestore.style.display = isMaximized ? 'block' : 'none';
+      maxBtn.title = isMaximized ? 'Restore' : 'Maximize';
+    }
+  }
+
   function renderTabs() {
-    const tabBar = document.getElementById('tab-bar');
-    const dragSpacer = document.getElementById('tab-drag-spacer');
+    const tabsContainer = document.getElementById('tabs-container');
+    const newBtn = document.getElementById('new-tab-btn');
+    if (!tabsContainer || !newBtn) return;
     
     // Remove existing tabs
-    const oldTabs = tabBar.querySelectorAll('.tab');
+    const oldTabs = tabsContainer.querySelectorAll('.tab');
     oldTabs.forEach(t => t.remove());
 
     tabsState.forEach(tab => {
@@ -504,7 +494,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
       tabEl.dataset.id = tab.id;
 
       tabEl.onclick = (e) => {
-        if (!e.target.classList.contains('tab-close')) {
+        if (!e.target.closest('.tab-close')) {
           post({ action: 'switch_tab', id: tab.id });
         }
       };
@@ -536,11 +526,16 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
         }
       };
 
-      const icon = tab.pinned ? '📌' : '🌐';
+      const iconSvg = tab.pinned 
+        ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5v6l1 1 1-1v-6h5v-2l-2-2z"/></svg>`
+        : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
+
       tabEl.innerHTML = `
-        <div class="tab-icon">${icon}</div>
+        <div class="tab-icon">${iconSvg}</div>
         <div class="tab-title" title="${tab.title}">${tab.title}</div>
-        <div class="tab-close" title="Close Tab (Ctrl+W)">&times;</div>
+        <div class="tab-close" title="Close Tab (Ctrl+W)">
+          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg>
+        </div>
       `;
 
       tabEl.querySelector('.tab-close').onclick = (e) => {
@@ -548,7 +543,7 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
         post({ action: 'close_tab', id: tab.id });
       };
 
-      tabBar.insertBefore(tabEl, dragSpacer);
+      tabsContainer.insertBefore(tabEl, newBtn);
     });
   }
 
@@ -631,6 +626,9 @@ pub const CHROME_HTML: &str = r#"<!DOCTYPE html>
     if (state.decorations_enabled !== undefined) {
       const controls = document.getElementById('window-controls');
       if (controls) controls.style.display = state.decorations_enabled ? 'none' : 'flex';
+    }
+    if (state.is_maximized !== undefined) {
+      updateMaximizeState(state.is_maximized);
     }
     if (state.tabs) {
       tabsState = state.tabs;

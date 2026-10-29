@@ -576,7 +576,9 @@ impl BrowserWindow {
                 self.window.set_minimized(true);
             }
             BrowserEvent::MaximizeWindow => {
-                self.window.set_maximized(!self.window.is_maximized());
+                let is_max = !self.window.is_maximized();
+                self.window.set_maximized(is_max);
+                self.sync_toolbar_state();
             }
             BrowserEvent::CloseWindow => {
                 std::process::exit(0);
@@ -828,6 +830,7 @@ impl BrowserWindow {
             "shields_enabled": shield_enabled,
             "is_bookmarked": is_bookmarked,
             "decorations_enabled": self.decorations_enabled,
+            "is_maximized": self.window.is_maximized(),
             "tabs": tabs_json,
         });
 

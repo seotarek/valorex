@@ -71,6 +71,50 @@
 
 ## 📁 Architecture (معمارية المشروع)
 
+```mermaid
+flowchart TD
+    subgraph UI["Native GTK3 / CSD Host Process"]
+        A[Client-Side Decorations Window] --> B[TabStrip & Omnibox Controller]
+        B --> C[BiDi Layout & Direction Isolator]
+    end
+
+    subgraph Core["Browser Core (Rust Engine)"]
+        B --> D[BrowserManager & TabCache]
+        D --> E[Protocol Dispatcher valorex://]
+        D --> F[Valorex Shield Engine]
+        D --> G[SQLite WAL Storage]
+    end
+
+    subgraph Shield["Privacy & Security Pipeline"]
+        F --> H[Brave adblock-rust Engine]
+        H -->|Network Filter| I[EasyList & EasyPrivacy Rules]
+        H -->|Cosmetic Filter| J[DOM Element Hider Script]
+        F --> K[Background Filter Auto-Updater]
+    end
+
+    subgraph WebEngine["WebKitGTK Multi-Process Runtime"]
+        D -->|Secure IPC| L[WebKitWebContext 4.1]
+        L --> M[WebKitWebView Sandboxed WebProcess]
+        M -->|DOM Event Channel| J
+    end
+
+    subgraph Persistence["Local Isolated Storage"]
+        G --> N[(History SQLite)]
+        G --> O[(Bookmarks SQLite)]
+        G --> P[(Downloads SQLite)]
+        E --> Q[Custom Protocol Server]
+    end
+
+    style UI fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#fff
+    style Core fill:#0f172a,stroke:#10b981,stroke-width:2px,color:#fff
+    style Shield fill:#0f172a,stroke:#f43f5e,stroke-width:2px,color:#fff
+    style WebEngine fill:#0f172a,stroke:#8b5cf6,stroke-width:2px,color:#fff
+    style Persistence fill:#0f172a,stroke:#f59e0b,stroke-width:2px,color:#fff
+```
+
+### Module Breakdown (تفصيل المكونات)
+
+
 ```
 valorex/
 ├── Cargo.toml            # Project manifest & release optimization profiles
